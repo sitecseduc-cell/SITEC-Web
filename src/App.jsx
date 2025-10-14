@@ -1,6 +1,5 @@
 // src/App.jsx
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import './index.css'; // ← Importante!
 
 // --- ÍCONES SVG COMO COMPONENTES ---
 const Icon = ({ name, className }) => {
