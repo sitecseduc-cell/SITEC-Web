@@ -540,7 +540,7 @@ const PlaceholderComponent = ({ title }) => (
 
 const FerramentasComponent = () => {
   const tools = [
-    { name: "Hollides", description: "Analisador de férias para otimizar o planejamento da equipe.", icon: "calendarDays", color: "orange", link: "https://hollides-ccmp.vercel.app/" },
+    { name: "Hollides", description: "Analisador de férias para otimizar o planejamento da equipe.", icon: "calendarDays", color: "orange", link: "https://hollides.vercel.app/" },
     { name: "Reader", description: "Leitor de documentos PDF integrado à plataforma.", icon: "fileText", color: "red", link: "https://reader-tau-azure.vercel.app/" },
     { name: "Ticker", description: "Relógio de ponto digital para registro de jornada de trabalho.", icon: "clock", color: "green", link: "https://ticker-ccm.vercel.app/" },
   ];
