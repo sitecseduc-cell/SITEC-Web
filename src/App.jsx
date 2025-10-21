@@ -916,7 +916,7 @@ const DashboardGestorComponent = ({ searchQuery = '', activeTab, user, darkMode,
                 className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition disabled:bg-purple-400 disabled:cursor-not-allowed shadow-lg hover:shadow-purple-500/50"
               >
                 <Icon name="sparkles" className="w-4 h-4"/>
-                {isSummaryLoading ? 'Gerando...' : '✨ Gerar Resumo Inteligente'}
+                {isSummaryLoading ? 'Gerando...' : 'Gerar Resumo Inteligente com IA'}
               </button>
             </div>
             {isSummaryLoading && (
