@@ -130,7 +130,7 @@ const LoginComponent = ({ onViewChange, onLogin }) => {
   }, [username, password, onLogin]);
 
   return (
-    <AuthLayout title="Login" description="Acesso à Plataforma de Gestão Pública" icon="shieldCheck" iconColor="text-blue-600">
+    <AuthLayout title="Login" description="Acesso à Plataforma de Gestão Pública" icon="logo" iconColor="text-blue-600">
       <form onSubmit={handleSubmit} className="space-y-4">
         {message && (
           <div role="alert" className="bg-red-100 border-l-4 border-red-500 text-red-700 px-4 py-3 rounded-md text-sm text-center">
