@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 
 // --- IMPORTAÇÕES DO FIREBASE ---
-import { auth, db } from './firebaseConfig';
+import { auth, db } from './firebaseConfig'; // Garanta que firebaseConfig.js existe em src/
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -45,7 +45,7 @@ const Icon = ({ name, className }) => {
   );
 };
 
-// --- DADOS MOCKADOS ---
+// --- DADOS MOCKADOS (Mantidos por enquanto para a tabela) ---
 const getFormattedDate = (daysAgo) => {
   const date = new Date();
   date.setDate(date.getDate() - daysAgo);
@@ -115,6 +115,7 @@ const InputField = ({ id, label, type, value, onChange, disabled, required, plac
   </div>
 );
 
+// --- LoginComponent (ATUALIZADO PARA FIREBASE) ---
 const LoginComponent = ({ onViewChange, onLogin }) => {
   const [username, setUsername] = useState(''); // Este agora será o E-MAIL
   const [password, setPassword] = useState('');
@@ -125,7 +126,7 @@ const LoginComponent = ({ onViewChange, onLogin }) => {
     e.preventDefault();
     setMessage('');
     setIsSubmitting(true);
-    
+
     const email = username; // 'username' do state agora é o email
 
     try {
@@ -135,27 +136,32 @@ const LoginComponent = ({ onViewChange, onLogin }) => {
 
       // 2. Busca os dados extras (role) do usuário no Firestore
       const userDoc = await getDoc(doc(db, "users", user.uid));
-      
+
       if (userDoc.exists()) {
         const userData = userDoc.data();
         // 3. Chama o onLogin com os dados REAIS do Firebase + Firestore
-        onLogin({
-          username: userData.fullName, // Pega o nome do Firestore
-          role: userData.role, // Pega o role do Firestore
-          avatar: `https://placehold.co/100x100/6366f1/FFFFFF?text=${userData.fullName.charAt(0)}`
-        });
+        // O onAuthStateChanged vai lidar com a atualização do estado global,
+        // mas podemos chamar onLogin se precisar fazer algo extra aqui.
+        // onLogin({
+        //   username: userData.fullName, // Pega o nome do Firestore
+        //   role: userData.role, // Pega o role do Firestore
+        //   avatar: `https://placehold.co/100x100/6366f1/FFFFFF?text=${userData.fullName.charAt(0)}`
+        // });
+        // Geralmente, o onAuthStateChanged já cuida da transição de tela
       } else {
         // Usuário autenticado mas sem dados no Firestore (caso raro)
+        await signOut(auth); // Desloga se não tiver dados
         throw new Error("Dados do usuário não encontrados.");
       }
+      // Se chegou aqui, o login foi sucesso e o onAuthStateChanged vai mudar a view
+      // setIsSubmitting(false) não é estritamente necessário se a view muda
 
     } catch (error) {
       // Trata erros (ex: senha errada, usuário não encontrado)
-      setMessage('E-mail ou senha inválidos.');
+      setMessage('E-mail ou senha inválidos.'); // NOVA MENSAGEM DE ERRO
       setIsSubmitting(false);
       console.error("Erro no login:", error);
     }
-    // Não é necessário setIsSubmitting(false) aqui, pois o onLogin muda de tela
   };
 
   return (
@@ -226,6 +232,7 @@ const LoginComponent = ({ onViewChange, onLogin }) => {
   );
 };
 
+// --- RegisterComponent (ATUALIZADO PARA FIREBASE) ---
 const RegisterComponent = ({ onViewChange }) => {
   const [formData, setFormData] = useState({
     fullName: '',
@@ -249,6 +256,11 @@ const RegisterComponent = ({ onViewChange }) => {
       setMessage({ type: 'error', text: 'As senhas não coincidem.' });
       return;
     }
+    // Adicionar verificação de senha mínima (Firebase exige 6 caracteres)
+    if (formData.password.length < 6) {
+        setMessage({ type: 'error', text: 'A senha deve ter no mínimo 6 caracteres.' });
+        return;
+    }
     setIsSubmitting(true);
 
     // SUBSTITUÍDO TIMEOUT PELA LÓGICA DO FIREBASE
@@ -264,7 +276,7 @@ const RegisterComponent = ({ onViewChange }) => {
         fullName: formData.fullName,
         registration: formData.registration,
         email: formData.email,
-        role: 'Visitante' // Você pode definir um role padrão
+        role: 'Visitante' // Defina um role padrão
       });
 
       // Sucesso
@@ -277,7 +289,7 @@ const RegisterComponent = ({ onViewChange }) => {
       setIsSubmitting(false);
       if (error.code === 'auth/email-already-in-use') {
         setMessage({ type: 'error', text: 'Este e-mail já está em uso.' });
-      } else if (error.code === 'auth/weak-password') {
+      } else if (error.code === 'auth/weak-password') { // Já verificamos antes, mas bom ter
         setMessage({ type: 'error', text: 'A senha deve ter no mínimo 6 caracteres.' });
       } else {
         setMessage({ type: 'error', text: 'Erro ao criar conta. Tente novamente.' });
@@ -322,10 +334,9 @@ const RegisterComponent = ({ onViewChange }) => {
   );
 };
 
-// ... (O componente ForgotPasswordComponent pode ser atualizado depois,
-// ele usa sendPasswordResetEmail do 'firebase/auth') ...
-
+// --- ForgotPasswordComponent (Pode ser atualizado com Firebase depois) ---
 const ForgotPasswordComponent = ({ onViewChange }) => {
+  // ... (código existente, pode adicionar sendPasswordResetEmail de 'firebase/auth' aqui depois)
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState({ type: '', text: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -334,8 +345,7 @@ const ForgotPasswordComponent = ({ onViewChange }) => {
     e.preventDefault();
     setIsSubmitting(true);
     setMessage({ type: '', text: '' });
-    // LÓGICA DO FIREBASE (sendPasswordResetEmail) PODE SER ADICIONADA AQUI
-    // Por enquanto, mantemos a simulação
+    // TODO: Adicionar lógica do Firebase com sendPasswordResetEmail(auth, email)
     setTimeout(() => {
       setIsSubmitting(false);
       setMessage({ type: 'success', text: 'Se um e-mail correspondente for encontrado, um link de recuperação será enviado.' });
@@ -343,7 +353,7 @@ const ForgotPasswordComponent = ({ onViewChange }) => {
     }, 1000);
   };
 
-  return (
+   return (
     <AuthLayout title="Recuperar Senha" description="Insira seu e-mail institucional para receber o link" icon="keyRound" iconColor="text-yellow-500">
       <form onSubmit={handleSubmit} className="space-y-4">
         {message.text && (
@@ -384,13 +394,18 @@ const ForgotPasswordComponent = ({ onViewChange }) => {
   );
 };
 
-// ... (Restante dos componentes Sidebar, Header, etc. não precisam de mudança imediata) ...
+// --- Componentes do Dashboard (Sidebar, Header, Layouts, etc.) ---
+// --- NÃO PRECISAM DE MUDANÇA IMEDIATA ---
 const Sidebar = ({ user, onLogout, activeTab, onTabChange, isMobileSidebarOpen, setIsMobileSidebarOpen }) => {
   const navItems = {
     'Gestor': [ { icon: 'home', label: 'Início' }, { icon: 'folderKanban', label: 'Processos' }, { icon: 'pieChart', label: 'Relatórios' }, { icon: 'briefcase', label: 'Ferramentas' }, { icon: 'settings', label: 'Configurações' } ],
     'Servidor': [ { icon: 'home', label: 'Início' }, { icon: 'folderKanban', label: 'Meus Processos' }, { icon: 'briefcase', label: 'Ferramentas' } ],
+    // Ajuste: O role padrão é 'Visitante', então precisamos garantir que ele exista aqui
     'Visitante': [ { icon: 'home', label: 'Início' }, { icon: 'pieChart', label: 'Dados Públicos' }, { icon: 'briefcase', label: 'Ferramentas' } ],
   };
+   // Adicione um fallback caso o user.role não seja encontrado
+  const currentNavItems = navItems[user?.role] || navItems['Visitante'];
+
 
   const handleTabChange = (label) => {
     onTabChange(label);
@@ -406,7 +421,8 @@ const Sidebar = ({ user, onLogout, activeTab, onTabChange, isMobileSidebarOpen, 
         </div>
       </div>
       <nav className="flex-1 px-4 py-6 space-y-2">
-        {(navItems[user.role] || []).map(item => {
+         {/* Use currentNavItems aqui */}
+        {currentNavItems.map(item => {
           const isActive = activeTab === item.label;
           return (
             <button
@@ -472,6 +488,7 @@ const Sidebar = ({ user, onLogout, activeTab, onTabChange, isMobileSidebarOpen, 
   );
 };
 
+// ... (Header, DashboardLayout, TabelaProcessosRecentes, etc., continuam iguais)
 const Header = ({ user, darkMode, toggleDarkMode, searchQuery, setSearchQuery, setIsMobileSidebarOpen }) => {
   const [time, setTime] = useState(new Date());
   useEffect(() => {
@@ -493,7 +510,8 @@ const Header = ({ user, darkMode, toggleDarkMode, searchQuery, setSearchQuery, s
           <Icon name="menu" className="h-6 w-6" />
         </button>
         <div>
-          <h2 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white">Olá, {user.username}!</h2>
+          {/* Adicionado fallback para user.username */}
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white">Olá, {user?.username || 'Usuário'}!</h2>
           <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">{formattedDate}</p>
         </div>
       </div>
@@ -529,6 +547,10 @@ const DashboardLayout = ({ user, onLogout, darkMode, toggleDarkMode, children, a
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
+   if (!user) { // Adicionado guarda para caso user seja null temporariamente
+     return null; // Ou um spinner/loading
+   }
+
   return (
     <div className={`flex h-screen bg-gray-100 dark:bg-gray-900 font-sans`}>
       <Sidebar
@@ -560,9 +582,7 @@ const DashboardLayout = ({ user, onLogout, darkMode, toggleDarkMode, children, a
   );
 };
 
-// ... (Todos os outros componentes (TabelaProcessosRecentes, PlaceholderComponent,
-// FerramentasComponent, SettingsComponent, DashboardVisitanteComponent,
-// DashboardServidorComponent, DashboardGestorComponent) permanecem os mesmos) ...
+
 const TabelaProcessosRecentes = ({ processes }) => {
   const headerItems = ["ID", "Solicitante", "Status", "Data"];
   return (
@@ -687,41 +707,63 @@ const ToggleSwitch = ({ id, name, label, description, checked, onChange }) => (
 );
 
 const ProfileSettings = ({ user }) => {
+   // Use o usuário passado como prop que vem do estado do App
   const [profile, setProfile] = useState({
-    username: user.username,
-    email: 'admin@seduc.pa.gov.br', // Este email deveria vir do 'auth.currentUser.email'
-    avatar: user.avatar,
+    username: user?.username || '',
+    email: auth.currentUser?.email || '', // Pega email do Firebase Auth se disponível
+    avatar: user?.avatar || '',
   });
 
-  // Idealmente, você buscaria o email do 'auth.currentUser'
-  // Mas para esta estrutura, vamos manter simples
+  // Atualiza o estado local se o usuário (prop) mudar
   useEffect(() => {
-    if (auth.currentUser) {
-      setProfile(prev => ({ ...prev, email: auth.currentUser.email }));
-    }
-  }, []);
+     if(user) {
+         setProfile({
+            username: user.username,
+            email: auth.currentUser?.email || '',
+            avatar: user.avatar,
+         });
+     }
+  }, [user]);
 
   const handleProfileChange = (e) => {
     setProfile({ ...profile, [e.target.name]: e.target.value });
   };
 
-  const handleProfileSave = (e) => {
+  const handleProfileSave = async (e) => { // Tornar async
     e.preventDefault();
-    // Aqui você atualizaria os dados no Firestore (ex: nome, avatar)
-    // E no Firebase Auth (ex: updateProfile)
-    alert('Perfil salvo com sucesso! (Simulação)');
+    if (!auth.currentUser) return; // Não faz nada se não estiver logado
+
+    try {
+        // Atualiza no Firestore (exemplo: nome e avatar)
+        const userDocRef = doc(db, "users", auth.currentUser.uid);
+        await setDoc(userDocRef, {
+            fullName: profile.username, // Assumindo que username é o fullName
+            avatar: profile.avatar,
+            // Mantém outros campos que já existiam (IMPORTANTE!)
+        }, { merge: true }); // merge: true evita sobrescrever campos existentes como role, email, etc.
+
+        // TODO: Atualizar o display name no Firebase Auth (opcional)
+        // await updateProfile(auth.currentUser, { displayName: profile.username, photoURL: profile.avatar });
+
+        alert('Perfil salvo com sucesso!');
+        // Opcional: Atualizar o estado 'user' no componente App para refletir a mudança imediatamente
+    } catch (error) {
+        console.error("Erro ao salvar perfil:", error);
+        alert('Erro ao salvar perfil.');
+    }
   };
+
 
   return (
     <div className="animate-fade-in">
       <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-4">Perfil Público</h3>
       <form onSubmit={handleProfileSave} className="space-y-6">
         <div className="flex items-center space-x-4">
-          <img src={profile.avatar} alt="Avatar" className="w-16 h-16 rounded-full object-cover" />
+          <img src={profile.avatar || `https://placehold.co/100x100/eeeeee/333333?text=${profile.username?.charAt(0) || '?'}`} alt="Avatar" className="w-16 h-16 rounded-full object-cover" />
           <SettingsInputField id="avatar" label="URL do Avatar" type="text" name="avatar" value={profile.avatar} onChange={handleProfileChange} />
         </div>
-        <SettingsInputField id="username" label="Nome de Usuário" type="text" name="username" value={profile.username} onChange={handleProfileChange} />
-        <SettingsInputField id="email-profile" label="Email" type="email" name="email" value={profile.email} onChange={handleProfileChange} disabled={true}/>
+        <SettingsInputField id="username" label="Nome Completo" type="text" name="username" value={profile.username} onChange={handleProfileChange} />
+        <SettingsInputField id="email-profile" label="Email" type="email" name="email" value={profile.email} onChange={() => {}} disabled={true}/> {/* Email não é editável aqui */}
         <div className="flex justify-end pt-2">
           <button type="submit" className="px-5 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition duration-150 ease-in-out shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
             Salvar Alterações
@@ -732,6 +774,8 @@ const ProfileSettings = ({ user }) => {
   );
 };
 
+
+// ... (AppearanceSettings, SecuritySettings, NotificationSettings, SettingsComponent continuam iguais)
 const AppearanceSettings = ({ darkMode, toggleDarkMode }) => (
   <div className="animate-fade-in">
     <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2">Aparência</h3>
@@ -821,6 +865,7 @@ const SettingsComponent = ({ user, darkMode, toggleDarkMode }) => {
 
   const renderTabContent = () => {
     switch (activeSettingTab) {
+      // Passa o user para ProfileSettings
       case 'perfil': return <ProfileSettings user={user} />;
       case 'aparencia': return <AppearanceSettings darkMode={darkMode} toggleDarkMode={toggleDarkMode} />;
       case 'seguranca': return <SecuritySettings />;
@@ -828,6 +873,7 @@ const SettingsComponent = ({ user, darkMode, toggleDarkMode }) => {
       default: return null;
     }
   };
+
 
   return (
     <div className="bg-white dark:bg-gray-800 p-6 md:p-8 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 animate-fade-in">
@@ -855,10 +901,12 @@ const SettingsComponent = ({ user, darkMode, toggleDarkMode }) => {
   );
 };
 
+// ... (StaticPieChart, Dashboards específicos continuam iguais)
 const StaticPieChart = ({ data }) => {
   const total = data.reduce((sum, item) => sum + item.value, 0);
   let startAngle = 0;
   const slices = data.map((item, i) => {
+     if (total === 0) return null; // Evita divisão por zero
     const fraction = item.value / total;
     const endAngle = startAngle + fraction * 360;
     const largeArcFlag = fraction > 0.5 ? 1 : 0;
@@ -870,7 +918,7 @@ const StaticPieChart = ({ data }) => {
     const slice = <path key={i} d={pathData} fill={item.color} />;
     startAngle = endAngle;
     return slice;
-  });
+  }).filter(Boolean); // Remove nulls se total for 0
 
   return (
     <div className="w-full h-64 flex justify-center items-center">
@@ -944,6 +992,7 @@ const DashboardServidorComponent = ({ searchQuery = '', activeTab }) => {
   return <>{renderContent()}</>;
 };
 
+
 const DashboardGestorComponent = ({ searchQuery = '', activeTab, user, darkMode, toggleDarkMode }) => {
   const [summary, setSummary] = useState('');
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
@@ -995,7 +1044,7 @@ const DashboardGestorComponent = ({ searchQuery = '', activeTab, user, darkMode,
                 className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition disabled:bg-purple-400 disabled:cursor-not-allowed shadow-lg hover:shadow-purple-500/50"
               >
                 <Icon name="sparkles" className="w-4 h-4"/>
-                {isSummaryLoading ? 'Gerando...' : 'Gerar Resumo Inteligente com IA'}
+                {isSummaryLoading ? 'Gerando...' : 'Gerar Resumo Inteligente'}
               </button>
             </div>
             {isSummaryLoading && (
@@ -1035,6 +1084,7 @@ const DashboardGestorComponent = ({ searchQuery = '', activeTab, user, darkMode,
       case 'Ferramentas':
         return <FerramentasComponent />;
       case 'Configurações':
+         // Passa o user para SettingsComponent
         return <SettingsComponent user={user} darkMode={darkMode} toggleDarkMode={toggleDarkMode} />;
       default:
         return <PlaceholderComponent title="Página não encontrada" />;
@@ -1043,51 +1093,56 @@ const DashboardGestorComponent = ({ searchQuery = '', activeTab, user, darkMode,
   return <>{renderContent()}</>;
 };
 
-// --- COMPONENTE PRINCIPAL APP (COM LÓGICA DE AUTENTICAÇÃO) ---
+
+// --- COMPONENTE PRINCIPAL APP (ATUALIZADO PARA FIREBASE) ---
 const App = () => {
   const [view, setView] = useState('login');
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(null); // Armazena dados do Firestore (nome, role, avatar)
   const [darkMode, setDarkMode] = useState(false);
   const [activeTab, setActiveTab] = useState('Início');
-  
-  // Estado para verificar se a autenticação inicial do Firebase já carregou
-  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+  const [isLoadingAuth, setIsLoadingAuth] = useState(true); // Estado de loading
 
-  // Listener para persistência de login
+  // Listener do Firebase Auth para persistência
   useEffect(() => {
-    // onAuthStateChanged "ouve" mudanças no login (login, logout)
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        // Usuário está logado
-        // Busca os dados (role, nome) do Firestore
-        const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
+        // Usuário está logado no Firebase Auth
+        // Busca os dados complementares no Firestore
+        const userDocRef = doc(db, "users", firebaseUser.uid);
+        const userDoc = await getDoc(userDocRef);
+
         if (userDoc.exists()) {
           const userData = userDoc.data();
+          // Define o estado 'user' com os dados combinados
           setUser({
-            username: userData.fullName,
-            role: userData.role,
-            avatar: `https://placehold.co/100x100/6366f1/FFFFFF?text=${userData.fullName.charAt(0)}`
+            uid: firebaseUser.uid, // Guarda o UID para referência futura
+            username: userData.fullName, // Nome completo do Firestore
+            role: userData.role,       // Role do Firestore
+            // Avatar pode vir do Firestore ou ser gerado
+            avatar: userData.avatar || `https://placehold.co/100x100/eeeeee/333333?text=${userData.fullName?.charAt(0) || '?'}`,
+            email: firebaseUser.email // Email do Firebase Auth
           });
-          setView('dashboard');
+          setView('dashboard'); // Muda para a view do dashboard
         } else {
-          // Caso raro: usuário existe no Auth mas não no Firestore
-          await signOut(auth); // Desloga
+          // Caso estranho: usuário existe no Auth mas não no Firestore
+          console.error("Usuário autenticado mas sem dados no Firestore:", firebaseUser.uid);
+          await signOut(auth); // Desloga para evitar inconsistências
           setUser(null);
+          setView('login');
         }
       } else {
         // Usuário está deslogado
         setUser(null);
-        setView('login');
+        setView('login'); // Garante que volte para a tela de login
       }
-      // Indica que a verificação inicial terminou
-      setIsLoadingAuth(false);
+      setIsLoadingAuth(false); // Marca que a verificação inicial terminou
     });
 
-    // Limpa o listener quando o componente é "desmontado"
+    // Função de limpeza para remover o listener quando o componente desmontar
     return () => unsubscribe();
-  }, []); // Array vazio [], roda apenas uma vez
+  }, []); // Array vazio [] significa que este efeito roda apenas uma vez
 
-  // useEffect para o Dark Mode
+  // Efeitos para Dark Mode (permanecem iguais)
   useEffect(() => {
     const isDark = localStorage.getItem('darkMode') === 'true';
     setDarkMode(isDark);
@@ -1105,43 +1160,56 @@ const App = () => {
 
   const toggleDarkMode = () => setDarkMode(!darkMode);
 
+  // handleLogin é chamado pelo LoginComponent, mas o estado principal
+  // é gerenciado pelo onAuthStateChanged
   const handleLogin = (userInfo) => {
-    // Esta função é chamada pelo LoginComponent após o sucesso
-    setUser(userInfo);
+    // setUser(userInfo); // Não é mais necessário definir aqui, o listener faz isso
     setActiveTab('Início');
     setView('dashboard');
   };
 
+  // handleLogout agora usa o signOut do Firebase
   const handleLogout = async () => {
-    // Chama o signOut do Firebase
-    await signOut(auth);
-    setUser(null);
-    setView('login');
+    try {
+      await signOut(auth);
+      // O listener onAuthStateChanged vai automaticamente setar user para null e view para 'login'
+    } catch (error) {
+      console.error("Erro ao fazer logout:", error);
+    }
   };
 
+  // Função para renderizar o Dashboard correto baseado no 'role' do usuário
   const renderDashboard = () => {
-    if (!user) return null;
+    if (!user) return null; // Não renderiza nada se user for null
+
     let DashboardComponent;
     switch (user.role) {
       case 'Gestor': DashboardComponent = <DashboardGestorComponent />; break;
       case 'Servidor': DashboardComponent = <DashboardServidorComponent />; break;
       case 'Visitante': DashboardComponent = <DashboardVisitanteComponent />; break;
-      default: return <PlaceholderComponent title="Role não definido" />; // Fallback
+      default:
+        // Fallback para caso o role não seja reconhecido (ou seja null/undefined)
+        console.warn("Role de usuário não reconhecido:", user.role);
+        DashboardComponent = <DashboardVisitanteComponent />; // Mostra como visitante por padrão
+        break;
     }
     return (
       <DashboardLayout
-        user={user}
+        user={user} // Passa o objeto user completo
         onLogout={handleLogout}
         darkMode={darkMode}
         toggleDarkMode={toggleDarkMode}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
       >
-        {DashboardComponent}
+         {/* Passa as props necessárias para o componente filho */}
+        {React.cloneElement(DashboardComponent, { user, darkMode, toggleDarkMode, activeTab })}
       </DashboardLayout>
     );
   };
 
+
+  // Função para decidir qual componente de autenticação ou o dashboard renderizar
   const renderView = () => {
     switch (view) {
       case 'login': return <LoginComponent onViewChange={setView} onLogin={handleLogin} />;
@@ -1152,8 +1220,7 @@ const App = () => {
     }
   };
 
-  // Mostra uma tela de "Carregando..." enquanto o Firebase verifica
-  // se o usuário já estava logado
+  // Mostra "Carregando..." enquanto o Firebase verifica o estado de autenticação
   if (isLoadingAuth) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900">
@@ -1162,7 +1229,7 @@ const App = () => {
     );
   }
 
-  // Se não estiver carregando, renderiza a visão correta
+  // Renderiza a view correta após a verificação
   return renderView();
 };
 
