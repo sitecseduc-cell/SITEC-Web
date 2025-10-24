@@ -1,6 +1,16 @@
 // src/App.jsx
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 
+// --- IMPORTAÇÕES DO FIREBASE ---
+import { auth, db } from './firebaseConfig';
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  onAuthStateChanged,
+  signOut
+} from "firebase/auth";
+import { doc, setDoc, getDoc } from "firebase/firestore";
+
 // --- ÍCONES SVG COMO COMPONENTES ---
 const Icon = ({ name, className }) => {
   const icons = {
@@ -106,28 +116,47 @@ const InputField = ({ id, label, type, value, onChange, disabled, required, plac
 );
 
 const LoginComponent = ({ onViewChange, onLogin }) => {
-  const [username, setUsername] = useState('');
+  const [username, setUsername] = useState(''); // Este agora será o E-MAIL
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = useCallback((e) => {
+  const handleSubmit = async (e) => { // TORNADO ASYNC
     e.preventDefault();
     setMessage('');
     setIsSubmitting(true);
-    setTimeout(() => {
-      if (username === 'admin' && password === 'admin') {
-        onLogin({ username: 'Admin', role: 'Gestor', avatar: 'https://placehold.co/100x100/6366f1/FFFFFF?text=A' });
-      } else if (username === 'servidor' && password === 'servidor') {
-        onLogin({ username: 'Servidor', role: 'Servidor', avatar: 'https://placehold.co/100x100/10b981/FFFFFF?text=S' });
-      } else if (username === 'visitante' && password === 'visitante') {
-        onLogin({ username: 'Visitante', role: 'Visitante', avatar: 'https://placehold.co/100x100/f59e0b/FFFFFF?text=V' });
+    
+    const email = username; // 'username' do state agora é o email
+
+    try {
+      // 1. Tenta fazer login com email e senha
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+
+      // 2. Busca os dados extras (role) do usuário no Firestore
+      const userDoc = await getDoc(doc(db, "users", user.uid));
+      
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        // 3. Chama o onLogin com os dados REAIS do Firebase + Firestore
+        onLogin({
+          username: userData.fullName, // Pega o nome do Firestore
+          role: userData.role, // Pega o role do Firestore
+          avatar: `https://placehold.co/100x100/6366f1/FFFFFF?text=${userData.fullName.charAt(0)}`
+        });
       } else {
-        setMessage('Credenciais inválidas. Tente: admin/admin, servidor/servidor ou visitante/visitante.');
+        // Usuário autenticado mas sem dados no Firestore (caso raro)
+        throw new Error("Dados do usuário não encontrados.");
       }
+
+    } catch (error) {
+      // Trata erros (ex: senha errada, usuário não encontrado)
+      setMessage('E-mail ou senha inválidos.');
       setIsSubmitting(false);
-    }, 500);
-  }, [username, password, onLogin]);
+      console.error("Erro no login:", error);
+    }
+    // Não é necessário setIsSubmitting(false) aqui, pois o onLogin muda de tela
+  };
 
   return (
     <AuthLayout title="Login" description="Acesso à Plataforma de Gestão Pública" icon="logo" iconColor="text-blue-600">
@@ -138,12 +167,13 @@ const LoginComponent = ({ onViewChange, onLogin }) => {
           </div>
         )}
         <div>
-          <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Usuário</label>
+          {/* O label foi alterado para E-mail para corresponder ao Firebase Auth */}
+          <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300">E-mail</label>
           <input
             id="username"
-            type="text"
+            type="email" // Alterado para email
             className="mt-1 block w-full px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100"
-            placeholder="admin, servidor ou visitante"
+            placeholder="seu.email@exemplo.com"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             required
@@ -156,7 +186,7 @@ const LoginComponent = ({ onViewChange, onLogin }) => {
             id="password"
             type="password"
             className="mt-1 block w-full px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100"
-            placeholder="Digite a senha correspondente"
+            placeholder="Digite sua senha"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
@@ -212,7 +242,7 @@ const RegisterComponent = ({ onViewChange }) => {
     setFormData(prev => ({ ...prev, [id]: value }));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => { // TORNADO ASYNC
     e.preventDefault();
     setMessage({ type: '', text: '' });
     if (formData.password !== formData.confirmPassword) {
@@ -220,11 +250,40 @@ const RegisterComponent = ({ onViewChange }) => {
       return;
     }
     setIsSubmitting(true);
-    setTimeout(() => {
+
+    // SUBSTITUÍDO TIMEOUT PELA LÓGICA DO FIREBASE
+    try {
+      // 1. Cria o usuário no Firebase Authentication (apenas email e senha)
+      const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
+      const user = userCredential.user;
+
+      // 2. Salva os dados extras (nome, matrícula) no Firestore
+      // Vamos definir um 'role' padrão de 'Visitante' para novos cadastros
+      await setDoc(doc(db, "users", user.uid), {
+        uid: user.uid,
+        fullName: formData.fullName,
+        registration: formData.registration,
+        email: formData.email,
+        role: 'Visitante' // Você pode definir um role padrão
+      });
+
+      // Sucesso
       setIsSubmitting(false);
       setMessage({ type: 'success', text: 'Conta criada com sucesso! Você será redirecionado para o login.' });
       setTimeout(() => onViewChange('login'), 2000);
-    }, 1000);
+
+    } catch (error) {
+      // Trata erros (ex: email já em uso)
+      setIsSubmitting(false);
+      if (error.code === 'auth/email-already-in-use') {
+        setMessage({ type: 'error', text: 'Este e-mail já está em uso.' });
+      } else if (error.code === 'auth/weak-password') {
+        setMessage({ type: 'error', text: 'A senha deve ter no mínimo 6 caracteres.' });
+      } else {
+        setMessage({ type: 'error', text: 'Erro ao criar conta. Tente novamente.' });
+      }
+      console.error("Erro no registro:", error);
+    }
   };
 
   return (
@@ -238,7 +297,7 @@ const RegisterComponent = ({ onViewChange }) => {
         <InputField id="fullName" label="Nome Completo" type="text" value={formData.fullName} onChange={handleChange} disabled={isSubmitting} required />
         <InputField id="registration" label="Matrícula" type="text" value={formData.registration} onChange={handleChange} disabled={isSubmitting} required />
         <InputField id="email" label="Email" type="email" value={formData.email} onChange={handleChange} disabled={isSubmitting} required />
-        <InputField id="password" label="Senha" type="password" value={formData.password} onChange={handleChange} disabled={isSubmitting} required />
+        <InputField id="password" label="Senha (mín. 6 caracteres)" type="password" value={formData.password} onChange={handleChange} disabled={isSubmitting} required />
         <InputField id="confirmPassword" label="Confirmar Senha" type="password" value={formData.confirmPassword} onChange={handleChange} disabled={isSubmitting} required />
         <button
           type="submit"
@@ -263,6 +322,9 @@ const RegisterComponent = ({ onViewChange }) => {
   );
 };
 
+// ... (O componente ForgotPasswordComponent pode ser atualizado depois,
+// ele usa sendPasswordResetEmail do 'firebase/auth') ...
+
 const ForgotPasswordComponent = ({ onViewChange }) => {
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState({ type: '', text: '' });
@@ -272,6 +334,8 @@ const ForgotPasswordComponent = ({ onViewChange }) => {
     e.preventDefault();
     setIsSubmitting(true);
     setMessage({ type: '', text: '' });
+    // LÓGICA DO FIREBASE (sendPasswordResetEmail) PODE SER ADICIONADA AQUI
+    // Por enquanto, mantemos a simulação
     setTimeout(() => {
       setIsSubmitting(false);
       setMessage({ type: 'success', text: 'Se um e-mail correspondente for encontrado, um link de recuperação será enviado.' });
@@ -320,6 +384,7 @@ const ForgotPasswordComponent = ({ onViewChange }) => {
   );
 };
 
+// ... (Restante dos componentes Sidebar, Header, etc. não precisam de mudança imediata) ...
 const Sidebar = ({ user, onLogout, activeTab, onTabChange, isMobileSidebarOpen, setIsMobileSidebarOpen }) => {
   const navItems = {
     'Gestor': [ { icon: 'home', label: 'Início' }, { icon: 'folderKanban', label: 'Processos' }, { icon: 'pieChart', label: 'Relatórios' }, { icon: 'briefcase', label: 'Ferramentas' }, { icon: 'settings', label: 'Configurações' } ],
@@ -495,6 +560,9 @@ const DashboardLayout = ({ user, onLogout, darkMode, toggleDarkMode, children, a
   );
 };
 
+// ... (Todos os outros componentes (TabelaProcessosRecentes, PlaceholderComponent,
+// FerramentasComponent, SettingsComponent, DashboardVisitanteComponent,
+// DashboardServidorComponent, DashboardGestorComponent) permanecem os mesmos) ...
 const TabelaProcessosRecentes = ({ processes }) => {
   const headerItems = ["ID", "Solicitante", "Status", "Data"];
   return (
@@ -621,9 +689,17 @@ const ToggleSwitch = ({ id, name, label, description, checked, onChange }) => (
 const ProfileSettings = ({ user }) => {
   const [profile, setProfile] = useState({
     username: user.username,
-    email: 'admin@seduc.pa.gov.br',
+    email: 'admin@seduc.pa.gov.br', // Este email deveria vir do 'auth.currentUser.email'
     avatar: user.avatar,
   });
+
+  // Idealmente, você buscaria o email do 'auth.currentUser'
+  // Mas para esta estrutura, vamos manter simples
+  useEffect(() => {
+    if (auth.currentUser) {
+      setProfile(prev => ({ ...prev, email: auth.currentUser.email }));
+    }
+  }, []);
 
   const handleProfileChange = (e) => {
     setProfile({ ...profile, [e.target.name]: e.target.value });
@@ -631,6 +707,8 @@ const ProfileSettings = ({ user }) => {
 
   const handleProfileSave = (e) => {
     e.preventDefault();
+    // Aqui você atualizaria os dados no Firestore (ex: nome, avatar)
+    // E no Firebase Auth (ex: updateProfile)
     alert('Perfil salvo com sucesso! (Simulação)');
   };
 
@@ -678,6 +756,7 @@ const SecuritySettings = () => {
       alert('A nova senha e a confirmação não coincidem.');
       return;
     }
+    // Lógica para reautenticar e atualizar senha (updatePassword)
     alert('Senha alterada com sucesso! (Simulação)');
   };
   return (
@@ -964,12 +1043,51 @@ const DashboardGestorComponent = ({ searchQuery = '', activeTab, user, darkMode,
   return <>{renderContent()}</>;
 };
 
+// --- COMPONENTE PRINCIPAL APP (COM LÓGICA DE AUTENTICAÇÃO) ---
 const App = () => {
   const [view, setView] = useState('login');
   const [user, setUser] = useState(null);
   const [darkMode, setDarkMode] = useState(false);
   const [activeTab, setActiveTab] = useState('Início');
+  
+  // Estado para verificar se a autenticação inicial do Firebase já carregou
+  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
 
+  // Listener para persistência de login
+  useEffect(() => {
+    // onAuthStateChanged "ouve" mudanças no login (login, logout)
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        // Usuário está logado
+        // Busca os dados (role, nome) do Firestore
+        const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          setUser({
+            username: userData.fullName,
+            role: userData.role,
+            avatar: `https://placehold.co/100x100/6366f1/FFFFFF?text=${userData.fullName.charAt(0)}`
+          });
+          setView('dashboard');
+        } else {
+          // Caso raro: usuário existe no Auth mas não no Firestore
+          await signOut(auth); // Desloga
+          setUser(null);
+        }
+      } else {
+        // Usuário está deslogado
+        setUser(null);
+        setView('login');
+      }
+      // Indica que a verificação inicial terminou
+      setIsLoadingAuth(false);
+    });
+
+    // Limpa o listener quando o componente é "desmontado"
+    return () => unsubscribe();
+  }, []); // Array vazio [], roda apenas uma vez
+
+  // useEffect para o Dark Mode
   useEffect(() => {
     const isDark = localStorage.getItem('darkMode') === 'true';
     setDarkMode(isDark);
@@ -988,12 +1106,15 @@ const App = () => {
   const toggleDarkMode = () => setDarkMode(!darkMode);
 
   const handleLogin = (userInfo) => {
+    // Esta função é chamada pelo LoginComponent após o sucesso
     setUser(userInfo);
     setActiveTab('Início');
     setView('dashboard');
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // Chama o signOut do Firebase
+    await signOut(auth);
     setUser(null);
     setView('login');
   };
@@ -1005,7 +1126,7 @@ const App = () => {
       case 'Gestor': DashboardComponent = <DashboardGestorComponent />; break;
       case 'Servidor': DashboardComponent = <DashboardServidorComponent />; break;
       case 'Visitante': DashboardComponent = <DashboardVisitanteComponent />; break;
-      default: return null;
+      default: return <PlaceholderComponent title="Role não definido" />; // Fallback
     }
     return (
       <DashboardLayout
@@ -1031,6 +1152,17 @@ const App = () => {
     }
   };
 
+  // Mostra uma tela de "Carregando..." enquanto o Firebase verifica
+  // se o usuário já estava logado
+  if (isLoadingAuth) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900">
+        <p className="text-gray-600 dark:text-gray-300">Carregando...</p>
+      </div>
+    );
+  }
+
+  // Se não estiver carregando, renderiza a visão correta
   return renderView();
 };
 
