@@ -1,15 +1,22 @@
 // src/App.jsx
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 
-// --- IMPORTAÇÕES DO FIREBASE ---
-import { auth, db } from './firebaseConfig'; // Garanta que firebaseConfig.js existe em src/
+// --- IMPORTAÇÕES DO FIREBASE (ATUALIZADO) ---
+import { auth, db } from '../firebaseConfig'; // Corrigido: Aponta para a raiz do projeto
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   onAuthStateChanged,
   signOut
 } from "firebase/auth";
-import { doc, setDoc, getDoc } from "firebase/firestore";
+import {
+  doc,
+  setDoc,
+  getDoc,
+  collection, // Adicionado
+  query, // Adicionado
+  onSnapshot // Adicionado
+} from "firebase/firestore";
 
 // --- ÍCONES SVG COMO COMPONENTES ---
 const Icon = ({ name, className }) => {
@@ -45,32 +52,23 @@ const Icon = ({ name, className }) => {
   );
 };
 
-// --- DADOS MOCKADOS (Mantidos por enquanto para a tabela) ---
-const getFormattedDate = (daysAgo) => {
-  const date = new Date();
-  date.setDate(date.getDate() - daysAgo);
-  return date.toISOString().split('T')[0];
-};
+// --- DADOS MOCKADOS (REMOVIDOS) ---
+// const getFormattedDate = (daysAgo) => { ... };
+// const mockRecentProcesses = [ ... ];
 
-const mockRecentProcesses = [
-  { id: 'PROC-001', solicitante: 'Ana Silva', status: 'Aprovado', dataSubmissao: getFormattedDate(1) },
-  { id: 'PROC-002', solicitante: 'Bruno Costa', status: 'Em Análise', dataSubmissao: getFormattedDate(2) },
-  { id: 'PROC-003', solicitante: 'Carla Dias', status: 'Pendente', dataSubmissao: getFormattedDate(2) },
-  { id: 'PROC-004', solicitante: 'Daniel Martins', status: 'Rejeitado', dataSubmissao: getFormattedDate(3) },
-  { id: 'PROC-005', solicitante: 'Eduarda Faria', status: 'Aprovado', dataSubmissao: getFormattedDate(4) },
-];
-
-const useFilteredProcesses = (searchQuery) => {
+// --- HOOK DE FILTRAGEM (ATUALIZADO) ---
+const useFilteredProcesses = (searchQuery, processes) => { // Recebe 'processes'
   return useMemo(() => {
-    if (!searchQuery) return mockRecentProcesses;
+    if (!searchQuery) return processes; // Usa 'processes'
     const lowercasedQuery = searchQuery.toLowerCase();
-    return mockRecentProcesses.filter(p =>
-      p.id.toLowerCase().includes(lowercasedQuery) ||
-      p.solicitante.toLowerCase().includes(lowercasedQuery) ||
-      p.status.toLowerCase().includes(lowercasedQuery)
+    return processes.filter(p => // Usa 'processes'
+      (p.id && p.id.toLowerCase().includes(lowercasedQuery)) ||
+      (p.solicitante && p.solicitante.toLowerCase().includes(lowercasedQuery)) ||
+      (p.status && p.status.toLowerCase().includes(lowercasedQuery))
     );
-  }, [searchQuery]);
+  }, [searchQuery, processes]); // Adiciona 'processes' às dependências
 };
+
 
 const getStatusClass = (status) => {
   const baseClasses = 'px-2 inline-flex text-xs leading-5 font-semibold rounded-full';
@@ -933,13 +931,14 @@ const StaticPieChart = ({ data }) => {
   );
 };
 
-const DashboardVisitanteComponent = ({ searchQuery = '', activeTab }) => {
+// --- DASHBOARDS (ATUALIZADOS) ---
+const DashboardVisitanteComponent = ({ searchQuery = '', activeTab, processes }) => { // Recebe processes
   const feriasData = [
     { name: 'Trabalhando', value: 1250, color: '#3b82f6' },
     { name: 'Em Férias', value: 85, color: '#f59e0b' },
     { name: 'Férias Previstas', value: 120, color: '#a855f7' },
   ];
-  const filteredProcesses = useFilteredProcesses(searchQuery);
+  const filteredProcesses = useFilteredProcesses(searchQuery, processes); // Passa processes
 
   const renderContent = () => {
     switch(activeTab) {
@@ -969,8 +968,8 @@ const DashboardVisitanteComponent = ({ searchQuery = '', activeTab }) => {
   return <>{renderContent()}</>;
 };
 
-const DashboardServidorComponent = ({ searchQuery = '', activeTab }) => {
-  const filteredProcesses = useFilteredProcesses(searchQuery);
+const DashboardServidorComponent = ({ searchQuery = '', activeTab, processes }) => { // Recebe processes
+  const filteredProcesses = useFilteredProcesses(searchQuery, processes); // Passa processes
   const renderContent = () => {
     switch (activeTab) {
       case 'Início':
@@ -993,11 +992,11 @@ const DashboardServidorComponent = ({ searchQuery = '', activeTab }) => {
 };
 
 
-const DashboardGestorComponent = ({ searchQuery = '', activeTab, user, darkMode, toggleDarkMode }) => {
+const DashboardGestorComponent = ({ searchQuery = '', activeTab, user, darkMode, toggleDarkMode, processes }) => { // Recebe processes
   const [summary, setSummary] = useState('');
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState('');
-  const filteredProcesses = useFilteredProcesses(searchQuery);
+  const filteredProcesses = useFilteredProcesses(searchQuery, processes); // Passa processes
 
   const StatCard = ({ title, value, icon, color }) => {
     const colorMap = {
@@ -1101,6 +1100,7 @@ const App = () => {
   const [darkMode, setDarkMode] = useState(false);
   const [activeTab, setActiveTab] = useState('Início');
   const [isLoadingAuth, setIsLoadingAuth] = useState(true); // Estado de loading
+  const [processes, setProcesses] = useState([]); // <-- NOVO ESTADO PARA PROCESSOS
 
   // Listener do Firebase Auth para persistência
   useEffect(() => {
@@ -1158,6 +1158,38 @@ const App = () => {
     }
   }, [darkMode]);
 
+  // --- NOVO USEEFFECT PARA CARREGAR PROCESSOS ---
+  useEffect(() => {
+    if (user) { // Apenas busca processos se o utilizador estiver logado
+      // IMPORTANTE: Altere "processes" para o nome exato da sua coleção no Firestore
+      const q = query(collection(db, "processes")); 
+
+      const unsubscribe = onSnapshot(q, (querySnapshot) => {
+        const processesData = [];
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          // Converte Timestamp do Firebase para data formatada
+          // Garante que o campo existe e é um timestamp antes de converter
+          const dataSubmissao = (data.dataSubmissao && data.dataSubmissao.toDate)
+            ? data.dataSubmissao.toDate().toISOString().split('T')[0]
+            : 'Data Inválida'; // Fallback se a data estiver ausente ou mal formatada
+          
+          processesData.push({ 
+            id: doc.id, 
+            ...data,
+            dataSubmissao: dataSubmissao // Usa a data formatada
+          });
+        });
+        setProcesses(processesData);
+      });
+
+      // Limpa o listener quando o componente desmonta ou o utilizador faz logout
+      return () => unsubscribe();
+    } else {
+      setProcesses([]); // Limpa os processos se o utilizador fizer logout
+    }
+  }, [user]); // Depende do 'user' para re-executar
+
   const toggleDarkMode = () => setDarkMode(!darkMode);
 
   // handleLogin é chamado pelo LoginComponent, mas o estado principal
@@ -1202,8 +1234,14 @@ const App = () => {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
       >
-         {/* Passa as props necessárias para o componente filho */}
-        {React.cloneElement(DashboardComponent, { user, darkMode, toggleDarkMode, activeTab })}
+         {/* Passa as props necessárias (incluindo processes) para o componente filho */}
+        {React.cloneElement(DashboardComponent, { 
+          user, 
+          darkMode, 
+          toggleDarkMode, 
+          activeTab,
+          processes // <-- PASSA OS PROCESSOS AQUI
+        })}
       </DashboardLayout>
     );
   };
@@ -1234,3 +1272,4 @@ const App = () => {
 };
 
 export default App;
+
