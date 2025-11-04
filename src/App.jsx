@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 
 // --- IMPORTAÇÕES DO FIREBASE (ATUALIZADO) ---
-import { auth, db } from '../firebaseConfig'; // Corrigido: Aponta para a raiz do projeto
+import { auth, db } from '../firebaseConfig.js'; // Precisa da extensão .js
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
