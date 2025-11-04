@@ -1,5 +1,7 @@
 // src/App.jsx
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, Fragment } from 'react';
+// Importações do Headless UI para Modals
+import { Dialog, Transition } from '@headlessui/react'; // Removido 'Menu' que não estava sendo usado
 
 // --- IMPORTAÇÕES DO FIREBASE (ATUALIZADO) ---
 import { auth, db } from '../firebaseConfig.js'; // Precisa da extensão .js
@@ -7,18 +9,26 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   onAuthStateChanged,
-  signOut
+  signOut,
+  sendPasswordResetEmail // Adicionado
 } from "firebase/auth";
 import {
   doc,
   setDoc,
   getDoc,
-  collection, // Adicionado
-  query, // Adicionado
-  onSnapshot // Adicionado
+  collection,
+  query,
+  onSnapshot,
+  addDoc,   // Adicionado
+  updateDoc, // Adicionado
+  where,     // Adicionado
+  Timestamp, // Adicionado
+  serverTimestamp, // Adicionado
+  orderBy // Adicionado
 } from "firebase/firestore";
 
 // --- ÍCONES SVG COMO COMPONENTES ---
+// (Componente Icon permanece o mesmo, mas adicionei novos ícones)
 const Icon = ({ name, className }) => {
   const icons = {
     logo: <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />,
@@ -44,6 +54,11 @@ const Icon = ({ name, className }) => {
     briefcase: <><rect width="20" height="14" x="2" y="7" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></>,
     menu: <><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></>,
     x: <><path d="M18 6 6 18"/><path d="m6 6 12 12"/></>,
+    plus: <path d="M5 12h14m-7 7V5"/>,
+    edit: <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>,
+    helpCircle: <><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></>,
+    lifeBuoy: <><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="4.93" x2="9.17" y1="4.93" y2="9.17"/><line x1="14.83" x2="19.07" y1="9.17" y2="4.93"/><line x1="14.83" x2="19.07" y1="14.83" y2="19.07"/><line x1="4.93" x2="9.17" y1="19.07" y2="14.83"/></>,
+    users: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>,
   };
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
@@ -52,21 +67,52 @@ const Icon = ({ name, className }) => {
   );
 };
 
-// --- DADOS MOCKADOS (REMOVIDOS) ---
-// const getFormattedDate = (daysAgo) => { ... };
-// const mockRecentProcesses = [ ... ];
-
-// --- HOOK DE FILTRAGEM (ATUALIZADO) ---
-const useFilteredProcesses = (searchQuery, processes) => { // Recebe 'processes'
+// --- HOOK DE FILTRAGEM (permanece o mesmo) ---
+const useFilteredProcesses = (searchQuery, processes) => {
   return useMemo(() => {
-    if (!searchQuery) return processes; // Usa 'processes'
+    if (!searchQuery) return processes;
     const lowercasedQuery = searchQuery.toLowerCase();
-    return processes.filter(p => // Usa 'processes'
+    return processes.filter(p =>
       (p.id && p.id.toLowerCase().includes(lowercasedQuery)) ||
       (p.solicitante && p.solicitante.toLowerCase().includes(lowercasedQuery)) ||
       (p.status && p.status.toLowerCase().includes(lowercasedQuery))
     );
-  }, [searchQuery, processes]); // Adiciona 'processes' às dependências
+  }, [searchQuery, processes]);
+};
+
+// --- HOOK DE NOTIFICAÇÕES (NOVO) ---
+const useNotifications = (userId) => {
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (!userId) return;
+
+    // Query para notificações destinadas ao usuário, ordenadas por data
+    const q = query(
+      collection(db, "notifications"),
+      where("recipientId", "==", userId),
+      orderBy("timestamp", "desc")
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      let unread = 0;
+      const notifs = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        if (!data.read) {
+          unread++;
+        }
+        notifs.push({ id: doc.id, ...data });
+      });
+      setNotifications(notifs);
+      setUnreadCount(unread);
+    });
+
+    return () => unsubscribe();
+  }, [userId]);
+
+  return { notifications, unreadCount };
 };
 
 
@@ -97,11 +143,12 @@ const AuthLayout = ({ title, description, icon, iconColor, children }) => (
   </div>
 );
 
-const InputField = ({ id, label, type, value, onChange, disabled, required, placeholder }) => (
+const InputField = ({ id, label, type, value, onChange, disabled, required, placeholder, name }) => (
   <div>
     <label htmlFor={id} className="block text-sm font-medium text-gray-700 dark:text-gray-300">{label}</label>
     <input
       id={id}
+      name={name || id} // Garante que o 'name' seja passado para o onChange
       type={type}
       className="mt-1 block w-full px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100"
       value={value}
@@ -113,7 +160,25 @@ const InputField = ({ id, label, type, value, onChange, disabled, required, plac
   </div>
 );
 
-// --- LoginComponent (ATUALIZADO PARA FIREBASE) ---
+// --- SelectField (NOVO COMPONENTE) ---
+const SelectField = ({ id, label, value, onChange, disabled, required, children, name }) => (
+  <div>
+    <label htmlFor={id} className="block text-sm font-medium text-gray-700 dark:text-gray-300">{label}</label>
+    <select
+      id={id}
+      name={name || id}
+      className="mt-1 block w-full px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100"
+      value={value}
+      onChange={onChange}
+      disabled={disabled}
+      required={required}
+    >
+      {children}
+    </select>
+  </div>
+);
+
+// --- LoginComponent (Sem mudanças) ---
 const LoginComponent = ({ onViewChange, onLogin }) => {
   const [username, setUsername] = useState(''); // Este agora será o E-MAIL
   const [password, setPassword] = useState('');
@@ -128,35 +193,10 @@ const LoginComponent = ({ onViewChange, onLogin }) => {
     const email = username; // 'username' do state agora é o email
 
     try {
-      // 1. Tenta fazer login com email e senha
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
-
-      // 2. Busca os dados extras (role) do usuário no Firestore
-      const userDoc = await getDoc(doc(db, "users", user.uid));
-
-      if (userDoc.exists()) {
-        const userData = userDoc.data();
-        // 3. Chama o onLogin com os dados REAIS do Firebase + Firestore
-        // O onAuthStateChanged vai lidar com a atualização do estado global,
-        // mas podemos chamar onLogin se precisar fazer algo extra aqui.
-        // onLogin({
-        //   username: userData.fullName, // Pega o nome do Firestore
-        //   role: userData.role, // Pega o role do Firestore
-        //   avatar: `https://placehold.co/100x100/6366f1/FFFFFF?text=${userData.fullName.charAt(0)}`
-        // });
-        // Geralmente, o onAuthStateChanged já cuida da transição de tela
-      } else {
-        // Usuário autenticado mas sem dados no Firestore (caso raro)
-        await signOut(auth); // Desloga se não tiver dados
-        throw new Error("Dados do usuário não encontrados.");
-      }
-      // Se chegou aqui, o login foi sucesso e o onAuthStateChanged vai mudar a view
-      // setIsSubmitting(false) não é estritamente necessário se a view muda
-
+      // O onAuthStateChanged vai cuidar da transição de tela
     } catch (error) {
-      // Trata erros (ex: senha errada, usuário não encontrado)
-      setMessage('E-mail ou senha inválidos.'); // NOVA MENSAGEM DE ERRO
+      setMessage('E-mail ou senha inválidos.');
       setIsSubmitting(false);
       console.error("Erro no login:", error);
     }
@@ -171,11 +211,10 @@ const LoginComponent = ({ onViewChange, onLogin }) => {
           </div>
         )}
         <div>
-          {/* O label foi alterado para E-mail para corresponder ao Firebase Auth */}
           <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300">E-mail</label>
           <input
             id="username"
-            type="email" // Alterado para email
+            type="email"
             className="mt-1 block w-full px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100"
             placeholder="seu.email@exemplo.com"
             value={username}
@@ -230,7 +269,7 @@ const LoginComponent = ({ onViewChange, onLogin }) => {
   );
 };
 
-// --- RegisterComponent (ATUALIZADO PARA FIREBASE) ---
+// --- RegisterComponent (ATUALIZADO COM CAMPO SETOR) ---
 const RegisterComponent = ({ onViewChange }) => {
   const [formData, setFormData] = useState({
     fullName: '',
@@ -238,43 +277,48 @@ const RegisterComponent = ({ onViewChange }) => {
     email: '',
     password: '',
     confirmPassword: '',
+    sector: '', // --- NOVO CAMPO ---
   });
   const [message, setMessage] = useState({ type: '', text: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Lista de setores (você pode carregar isso do Firestore futuramente)
+  const sectors = ["TI", "Recursos Humanos", "Financeiro", "Administrativo", "Pedagógico"];
+
   const handleChange = (e) => {
-    const { id, value } = e.target;
-    setFormData(prev => ({ ...prev, [id]: value }));
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleSubmit = async (e) => { // TORNADO ASYNC
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setMessage({ type: '', text: '' });
     if (formData.password !== formData.confirmPassword) {
       setMessage({ type: 'error', text: 'As senhas não coincidem.' });
       return;
     }
-    // Adicionar verificação de senha mínima (Firebase exige 6 caracteres)
     if (formData.password.length < 6) {
-        setMessage({ type: 'error', text: 'A senha deve ter no mínimo 6 caracteres.' });
-        return;
+      setMessage({ type: 'error', text: 'A senha deve ter no mínimo 6 caracteres.' });
+      return;
+    }
+    if (!formData.sector) {
+      setMessage({ type: 'error', text: 'Por favor, selecione um setor.' });
+      return;
     }
     setIsSubmitting(true);
 
-    // SUBSTITUÍDO TIMEOUT PELA LÓGICA DO FIREBASE
     try {
-      // 1. Cria o usuário no Firebase Authentication (apenas email e senha)
       const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
       const user = userCredential.user;
 
-      // 2. Salva os dados extras (nome, matrícula) no Firestore
-      // Vamos definir um 'role' padrão de 'Visitante' para novos cadastros
+      // Salva os dados extras no Firestore
       await setDoc(doc(db, "users", user.uid), {
         uid: user.uid,
         fullName: formData.fullName,
         registration: formData.registration,
         email: formData.email,
-        role: 'Visitante' // Defina um role padrão
+        sector: formData.sector, // --- SALVA O SETOR ---
+        role: 'Analista' // --- NOVO PADRÃO "Analista" ---
       });
 
       // Sucesso
@@ -283,12 +327,9 @@ const RegisterComponent = ({ onViewChange }) => {
       setTimeout(() => onViewChange('login'), 2000);
 
     } catch (error) {
-      // Trata erros (ex: email já em uso)
       setIsSubmitting(false);
       if (error.code === 'auth/email-already-in-use') {
         setMessage({ type: 'error', text: 'Este e-mail já está em uso.' });
-      } else if (error.code === 'auth/weak-password') { // Já verificamos antes, mas bom ter
-        setMessage({ type: 'error', text: 'A senha deve ter no mínimo 6 caracteres.' });
       } else {
         setMessage({ type: 'error', text: 'Erro ao criar conta. Tente novamente.' });
       }
@@ -304,11 +345,26 @@ const RegisterComponent = ({ onViewChange }) => {
             <p>{message.text}</p>
           </div>
         )}
-        <InputField id="fullName" label="Nome Completo" type="text" value={formData.fullName} onChange={handleChange} disabled={isSubmitting} required />
-        <InputField id="registration" label="Matrícula" type="text" value={formData.registration} onChange={handleChange} disabled={isSubmitting} required />
-        <InputField id="email" label="Email" type="email" value={formData.email} onChange={handleChange} disabled={isSubmitting} required />
-        <InputField id="password" label="Senha (mín. 6 caracteres)" type="password" value={formData.password} onChange={handleChange} disabled={isSubmitting} required />
-        <InputField id="confirmPassword" label="Confirmar Senha" type="password" value={formData.confirmPassword} onChange={handleChange} disabled={isSubmitting} required />
+        <InputField id="fullName" name="fullName" label="Nome Completo" type="text" value={formData.fullName} onChange={handleChange} disabled={isSubmitting} required />
+        <InputField id="registration" name="registration" label="Matrícula" type="text" value={formData.registration} onChange={handleChange} disabled={isSubmitting} required />
+        
+        {/* --- NOVO CAMPO DE SETOR --- */}
+        <SelectField
+          id="sector"
+          name="sector"
+          label="Setor"
+          value={formData.sector}
+          onChange={handleChange}
+          disabled={isSubmitting}
+          required
+        >
+          <option value="">Selecione seu setor</option>
+          {sectors.map(s => <option key={s} value={s}>{s}</option>)}
+        </SelectField>
+
+        <InputField id="email" name="email" label="Email" type="email" value={formData.email} onChange={handleChange} disabled={isSubmitting} required />
+        <InputField id="password" name="password" label="Senha (mín. 6 caracteres)" type="password" value={formData.password} onChange={handleChange} disabled={isSubmitting} required />
+        <InputField id="confirmPassword" name="confirmPassword" label="Confirmar Senha" type="password" value={formData.confirmPassword} onChange={handleChange} disabled={isSubmitting} required />
         <button
           type="submit"
           disabled={isSubmitting}
@@ -332,27 +388,33 @@ const RegisterComponent = ({ onViewChange }) => {
   );
 };
 
-// --- ForgotPasswordComponent (Pode ser atualizado com Firebase depois) ---
+// --- ForgotPasswordComponent (ATUALIZADO COM FIREBASE) ---
 const ForgotPasswordComponent = ({ onViewChange }) => {
-  // ... (código existente, pode adicionar sendPasswordResetEmail de 'firebase/auth' aqui depois)
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState({ type: '', text: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => { // TORNADO ASYNC
     e.preventDefault();
     setIsSubmitting(true);
     setMessage({ type: '', text: '' });
-    // TODO: Adicionar lógica do Firebase com sendPasswordResetEmail(auth, email)
-    setTimeout(() => {
+    
+    try {
+      // --- LÓGICA REAL DO FIREBASE ---
+      await sendPasswordResetEmail(auth, email);
       setIsSubmitting(false);
-      setMessage({ type: 'success', text: 'Se um e-mail correspondente for encontrado, um link de recuperação será enviado.' });
+      setMessage({ type: 'success', text: 'Link de recuperação enviado! Verifique seu e-mail (e a caixa de spam).' });
       setEmail('');
-    }, 1000);
+    } catch (error) {
+      setIsSubmitting(false);
+      // Não informa se o e-mail não existe por segurança
+      setMessage({ type: 'success', text: 'Se um e-mail correspondente for encontrado, um link de recuperação será enviado.' });
+      console.error("Erro ao enviar email de recuperação:", error);
+    }
   };
 
-   return (
-    <AuthLayout title="Recuperar Senha" description="Insira seu e-mail institucional para receber o link" icon="keyRound" iconColor="text-yellow-500">
+  return (
+    <AuthLayout title="Recuperar Senha" description="Insira seu e-mail para receber o link" icon="keyRound" iconColor="text-yellow-500">
       <form onSubmit={handleSubmit} className="space-y-4">
         {message.text && (
           <div role="alert" className={`${message.type === 'success' ? 'bg-green-100 border-green-500 text-green-700' : 'bg-red-100 border-red-500 text-red-700'} border-l-4 p-4 rounded-md text-sm text-center`}>
@@ -361,12 +423,12 @@ const ForgotPasswordComponent = ({ onViewChange }) => {
         )}
         <InputField
           id="email"
-          label="Email Institucional"
+          label="Email Cadastrado"
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           disabled={isSubmitting}
-          placeholder="seu.email@seduc.pa.gov.br"
+          placeholder="seu.email@exemplo.com"
           required
         />
         <button
@@ -392,17 +454,20 @@ const ForgotPasswordComponent = ({ onViewChange }) => {
   );
 };
 
-// --- Componentes do Dashboard (Sidebar, Header, Layouts, etc.) ---
-// --- NÃO PRECISAM DE MUDANÇA IMEDIATA ---
+
+// --- Componentes do Dashboard ---
+// --- ATUALIZADO: Sidebar (perfis renomeados e menu do analista) ---
 const Sidebar = ({ user, onLogout, activeTab, onTabChange, isMobileSidebarOpen, setIsMobileSidebarOpen }) => {
   const navItems = {
     'Gestor': [ { icon: 'home', label: 'Início' }, { icon: 'folderKanban', label: 'Processos' }, { icon: 'pieChart', label: 'Relatórios' }, { icon: 'briefcase', label: 'Ferramentas' }, { icon: 'settings', label: 'Configurações' } ],
-    'Servidor': [ { icon: 'home', label: 'Início' }, { icon: 'folderKanban', label: 'Meus Processos' }, { icon: 'briefcase', label: 'Ferramentas' } ],
-    // Ajuste: O role padrão é 'Visitante', então precisamos garantir que ele exista aqui
-    'Visitante': [ { icon: 'home', label: 'Início' }, { icon: 'pieChart', label: 'Dados Públicos' }, { icon: 'briefcase', label: 'Ferramentas' } ],
+    // 'Servidor' -> 'Analista' e adicionado 'Configurações'
+    'Analista': [ { icon: 'home', label: 'Início' }, { icon: 'folderKanban', label: 'Meus Processos' }, { icon: 'briefcase', label: 'Ferramentas' }, { icon: 'settings', label: 'Configurações' } ],
+    // 'Visitante' -> 'Suporte' e menus atualizados
+    'Suporte': [ { icon: 'lifeBuoy', label: 'Tickets' }, { icon: 'users', label: 'Usuários' }, { icon: 'briefcase', label: 'Ferramentas' } ],
   };
-   // Adicione um fallback caso o user.role não seja encontrado
-  const currentNavItems = navItems[user?.role] || navItems['Visitante'];
+   
+  // Fallback caso o role não seja encontrado
+  const currentNavItems = navItems[user?.role] || navItems['Suporte'];
 
 
   const handleTabChange = (label) => {
@@ -419,7 +484,6 @@ const Sidebar = ({ user, onLogout, activeTab, onTabChange, isMobileSidebarOpen, 
         </div>
       </div>
       <nav className="flex-1 px-4 py-6 space-y-2">
-         {/* Use currentNavItems aqui */}
         {currentNavItems.map(item => {
           const isActive = activeTab === item.label;
           return (
@@ -450,7 +514,7 @@ const Sidebar = ({ user, onLogout, activeTab, onTabChange, isMobileSidebarOpen, 
           <img className="h-10 w-10 rounded-full object-cover" src={user.avatar} alt="Avatar do usuário" />
           <div className="ml-3">
             <p className="text-sm font-semibold text-gray-800 dark:text-white">{user.username}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">{user.role}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{user.role} ({user.sector})</p> {/* Mostra o setor */}
           </div>
         </div>
         <button onClick={onLogout} className="w-full flex items-center justify-center mt-4 px-4 py-2 text-sm font-medium text-red-600 bg-red-50 dark:bg-red-900/20 dark:text-red-400 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 transition duration-150 ease-in-out">
@@ -466,29 +530,57 @@ const Sidebar = ({ user, onLogout, activeTab, onTabChange, isMobileSidebarOpen, 
       <aside className="w-64 bg-white dark:bg-gray-800 flex-col border-r border-gray-200 dark:border-gray-700 transition-colors duration-300 hidden md:flex">
         <SidebarContent />
       </aside>
-      <div className={`fixed inset-0 z-40 md:hidden transition-opacity ${isMobileSidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} role="dialog" aria-modal="true">
-        <div className="fixed inset-0 bg-black bg-opacity-60" onClick={() => setIsMobileSidebarOpen(false)} aria-hidden="true"></div>
-        <div className={`relative flex-1 flex flex-col max-w-xs w-full bg-white dark:bg-gray-800 transform transition-transform ease-in-out duration-300 ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-          <div className="absolute top-0 right-0 -mr-12 pt-2">
-            <button
-              type="button"
-              className="ml-1 flex items-center justify-center h-10 w-10 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white"
-              onClick={() => setIsMobileSidebarOpen(false)}
-            >
-              <span className="sr-only">Fechar sidebar</span>
-              <Icon name="x" className="h-6 w-6 text-white" />
-            </button>
-          </div>
-          <SidebarContent />
-        </div>
-      </div>
+      <Transition show={isMobileSidebarOpen} as={Fragment}>
+        <Dialog as="div" className="relative z-40 md:hidden" onClose={setIsMobileSidebarOpen}>
+          {/* Overlay */}
+          <Transition.Child
+            as={Fragment}
+            enter="transition-opacity ease-linear duration-300"
+            enterFrom="opacity-0"
+            enterTo="opacity-100"
+            leave="transition-opacity ease-linear duration-300"
+            leaveFrom="opacity-100"
+            leaveTo="opacity-0"
+          >
+            <Dialog.Overlay className="fixed inset-0 bg-black bg-opacity-60" />
+          </Transition.Child>
+
+          {/* Sidebar */}
+          <Transition.Child
+            as={Fragment}
+            enter="transition ease-in-out duration-300 transform"
+            enterFrom="-translate-x-full"
+            enterTo="translate-x-0"
+            leave="transition ease-in-out duration-300 transform"
+            leaveFrom="translate-x-0"
+            leaveTo="-translate-x-full"
+          >
+            <div className="relative flex-1 flex flex-col max-w-xs w-full bg-white dark:bg-gray-800">
+                <div className="absolute top-0 right-0 -mr-12 pt-2">
+                  <button
+                    type="button"
+                    className="ml-1 flex items-center justify-center h-10 w-10 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white"
+                    onClick={() => setIsMobileSidebarOpen(false)}
+                  >
+                    <span className="sr-only">Fechar sidebar</span>
+                    <Icon name="x" className="h-6 w-6 text-white" />
+                  </button>
+                </div>
+              <SidebarContent />
+            </div>
+          </Transition.Child>
+        </Dialog>
+      </Transition>
     </>
   );
 };
 
-// ... (Header, DashboardLayout, TabelaProcessosRecentes, etc., continuam iguais)
+// --- ATUALIZADO: Header (Notificações dinâmicas) ---
 const Header = ({ user, darkMode, toggleDarkMode, searchQuery, setSearchQuery, setIsMobileSidebarOpen }) => {
   const [time, setTime] = useState(new Date());
+  const { notifications, unreadCount } = useNotifications(user?.uid); // <-- HOOK DE NOTIFICAÇÕES
+  const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
+
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(timer);
@@ -508,7 +600,6 @@ const Header = ({ user, darkMode, toggleDarkMode, searchQuery, setSearchQuery, s
           <Icon name="menu" className="h-6 w-6" />
         </button>
         <div>
-          {/* Adicionado fallback para user.username */}
           <h2 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white">Olá, {user?.username || 'Usuário'}!</h2>
           <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">{formattedDate}</p>
         </div>
@@ -528,26 +619,118 @@ const Header = ({ user, darkMode, toggleDarkMode, searchQuery, setSearchQuery, s
           />
         </div>
         <p className="text-lg font-semibold text-gray-700 dark:text-gray-200 hidden lg:block" aria-label={`Horário atual: ${formattedTime}`}>{formattedTime}</p>
+        
         <button onClick={toggleDarkMode} className="p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700" aria-label={darkMode ? "Ativar modo claro" : "Ativar modo escuro"}>
           <Icon name={darkMode ? 'sun' : 'moon'} className="h-6 w-6" />
         </button>
-        <button className="relative p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700" aria-label="Ver notificações">
-          <Icon name="bell" className="h-6 w-6" />
-          <span className="absolute top-1 right-1 h-2.5 w-2.5 bg-red-500 rounded-full border-2 border-white dark:border-gray-800"></span>
-          <span className="sr-only">Você tem novas notificações</span>
-        </button>
+        
+        {/* Botão de Notificação Atualizado */}
+        <div className="relative">
+          <button 
+            onClick={() => setIsNotificationPanelOpen(prev => !prev)} 
+            className="relative p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700" 
+            aria-label="Ver notificações"
+          >
+            <Icon name="bell" className="h-6 w-6" />
+            {unreadCount > 0 && (
+              <span className="absolute top-1 right-1 flex h-4 w-4">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-red-500 text-white text-xs" style={{ fontSize: '0.6rem' }}>
+                  {unreadCount}
+                </span>
+              </span>
+            )}
+          </button>
+          
+          {/* Painel de Notificações (NOVO) */}
+          <NotificationPanel 
+            isOpen={isNotificationPanelOpen} 
+            setIsOpen={setIsNotificationPanelOpen} 
+            notifications={notifications}
+            user={user}
+          />
+        </div>
       </div>
     </header>
   );
 };
 
+// --- NOVO: NotificationPanel ---
+const NotificationPanel = ({ isOpen, setIsOpen, notifications, user }) => {
+  
+  const markAsRead = async (id) => {
+    const notifRef = doc(db, "notifications", id);
+    await updateDoc(notifRef, { read: true });
+  };
+  
+  // TODO: Criar Modal para enviar mensagem
+  const handleSendMessage = () => {
+    alert("Função 'Enviar Mensagem' ainda não implementada.");
+  }
+
+  return (
+    <Transition
+      show={isOpen}
+      as={Fragment}
+      enter="transition ease-out duration-100"
+      enterFrom="transform opacity-0 scale-95"
+      enterTo="transform opacity-100 scale-100"
+      leave="transition ease-in duration-75"
+      leaveFrom="transform opacity-100 scale-100"
+      leaveTo="transform opacity-0 scale-95"
+    >
+      <div className="absolute right-0 mt-2 w-80 max-h-96 overflow-y-auto bg-white dark:bg-gray-800 rounded-lg shadow-xl border dark:border-gray-700 z-50">
+        <div className="p-4 border-b dark:border-gray-700">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Notificações</h3>
+        </div>
+        <div className="divide-y dark:divide-gray-700">
+          {notifications.length === 0 ? (
+            <p className="text-gray-500 dark:text-gray-400 text-sm text-center p-6">Nenhuma notificação nova.</p>
+          ) : (
+            notifications.map(notif => (
+              <div key={notif.id} className={`p-4 ${!notif.read ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
+                <p className="text-sm text-gray-700 dark:text-gray-300">
+                  <span className="font-bold">{notif.fromName || 'Sistema'}</span>: {notif.message}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  {notif.timestamp?.toDate().toLocaleString('pt-BR') || 'agora'}
+                </p>
+                {!notif.read && (
+                  <button 
+                    onClick={() => markAsRead(notif.id)}
+                    className="text-xs text-blue-600 hover:underline mt-1"
+                  >
+                    Marcar como lida
+                  </button>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+        {user.role !== 'Gestor' && (
+           <div className="p-2 border-t dark:border-gray-700">
+             <button 
+               onClick={handleSendMessage}
+               className="w-full px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition"
+             >
+               Enviar Mensagem ao Gestor
+             </button>
+           </div>
+        )}
+      </div>
+    </Transition>
+  );
+};
+
+
+// --- ATUALIZADO: DashboardLayout (com max-w-7xl) ---
 const DashboardLayout = ({ user, onLogout, darkMode, toggleDarkMode, children, activeTab, setActiveTab }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
-   if (!user) { // Adicionado guarda para caso user seja null temporariamente
-     return null; // Ou um spinner/loading
-   }
+  if (!user) {
+    return null;
+  }
 
   return (
     <div className={`flex h-screen bg-gray-100 dark:bg-gray-900 font-sans`}>
@@ -569,7 +752,8 @@ const DashboardLayout = ({ user, onLogout, darkMode, toggleDarkMode, children, a
           setIsMobileSidebarOpen={setIsMobileSidebarOpen}
         />
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 dark:bg-gray-900 p-4 sm:p-8 transition-colors duration-300">
-          <div id="printable-area">
+          {/* --- MUDANÇA: Adicionado container para harmonia do layout --- */}
+          <div className="max-w-7xl mx-auto" id="printable-area">
             {React.Children.map(children, child =>
               React.cloneElement(child, { searchQuery, activeTab, user, darkMode, toggleDarkMode })
             )}
@@ -580,12 +764,22 @@ const DashboardLayout = ({ user, onLogout, darkMode, toggleDarkMode, children, a
   );
 };
 
-
-const TabelaProcessosRecentes = ({ processes }) => {
-  const headerItems = ["ID", "Solicitante", "Status", "Data"];
+// --- ATUALIZADO: TabelaProcessosRecentes (Com coluna "Ações") ---
+const TabelaProcessosRecentes = ({ processes, onEditProcess, userRole }) => {
+  const headerItems = ["ID", "Solicitante", "Status", "Data", "Setor"];
+  
+  // Adiciona "Ações" se for Gestor ou Analista
+  if (userRole === 'Gestor' || userRole === 'Analista') {
+    headerItems.push("Ações");
+  }
+  
   return (
     <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 animate-fade-in">
-      <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-4">Consulta de Processos</h2>
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-bold text-gray-800 dark:text-white">Consulta de Processos</h2>
+        {/* O botão de "Registrar" será movido para o Dashboard do Analista */}
+      </div>
+      
       {(!processes || processes.length === 0) ? (
         <div className="text-center py-8">
           <p className="text-gray-500 dark:text-gray-400">Nenhum processo encontrado.</p>
@@ -603,10 +797,24 @@ const TabelaProcessosRecentes = ({ processes }) => {
             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
               {processes.map((process) => (
                 <tr key={process.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{process.id}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600 dark:text-blue-400">{process.id.substring(0, 8)}...</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">{process.solicitante}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm"><span className={getStatusClass(process.status)}>{process.status}</span></td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">{process.dataSubmissao}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">{process.sector}</td>
+                  
+                  {/* --- NOVA COLUNA DE AÇÕES --- */}
+                  {(userRole === 'Gestor' || userRole === 'Analista') && (
+                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                       <button 
+                         onClick={() => onEditProcess(process)}
+                         className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 flex items-center gap-1"
+                       >
+                         <Icon name="edit" className="w-4 h-4" />
+                         Alterar
+                       </button>
+                     </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -617,6 +825,7 @@ const TabelaProcessosRecentes = ({ processes }) => {
   );
 };
 
+
 const PlaceholderComponent = ({ title }) => (
   <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 animate-fade-in">
     <h2 className="text-2xl font-bold text-gray-800 dark:text-white">{title}</h2>
@@ -624,7 +833,8 @@ const PlaceholderComponent = ({ title }) => (
   </div>
 );
 
-const FerramentasComponent = () => {
+// --- ATUALIZADO: FerramentasComponent (com botão de Contato) ---
+const FerramentasComponent = ({ onContactSupport }) => {
   const tools = [
     { name: "Hollides", description: "Analisador de férias para otimizar o planejamento da equipe.", icon: "calendarDays", color: "orange", link: "https://hollides.vercel.app/" },
     { name: "Reader", description: "Leitor de documentos PDF integrado à plataforma.", icon: "fileText", color: "red", link: "https://reader-tau-azure.vercel.app/" },
@@ -635,10 +845,34 @@ const FerramentasComponent = () => {
     orange: { bg: 'bg-orange-100 dark:bg-orange-900/50', text: 'text-orange-600 dark:text-orange-400', button: 'bg-orange-600 hover:bg-orange-700' },
     red: { bg: 'bg-red-100 dark:bg-red-900/50', text: 'text-red-600 dark:text-red-400', button: 'bg-red-600 hover:bg-red-700' },
     green: { bg: 'bg-green-100 dark:bg-green-900/50', text: 'text-green-600 dark:text-green-400', button: 'bg-green-600 hover:bg-green-700' },
+    blue: { bg: 'bg-blue-100 dark:bg-blue-900/50', text: 'text-blue-600 dark:text-blue-400', button: 'bg-blue-600 hover:bg-blue-700' },
   };
 
   const ToolCard = ({ tool }) => {
     const classes = colorClasses[tool.color] || colorClasses.orange;
+    
+    // Se for um link externo
+    if (tool.link) {
+      return (
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 flex flex-col items-center text-center transition-transform transform hover:-translate-y-1">
+          <div className={`p-4 rounded-full ${classes.bg} mb-4`}>
+            <Icon name={tool.icon} className={`h-8 w-8 ${classes.text}`} />
+          </div>
+          <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2">{tool.name}</h3>
+          <p className="text-gray-500 dark:text-gray-400 text-sm mb-4 flex-grow">{tool.description}</p>
+          <a
+            href={tool.link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`w-full block mt-auto px-4 py-2 text-sm font-medium text-white ${classes.button} rounded-lg transition`}
+          >
+            Acessar Ferramenta
+          </a>
+        </div>
+      );
+    }
+    
+    // Se for uma ação interna (como "Contatar Suporte")
     return (
       <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 flex flex-col items-center text-center transition-transform transform hover:-translate-y-1">
         <div className={`p-4 rounded-full ${classes.bg} mb-4`}>
@@ -646,27 +880,41 @@ const FerramentasComponent = () => {
         </div>
         <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2">{tool.name}</h3>
         <p className="text-gray-500 dark:text-gray-400 text-sm mb-4 flex-grow">{tool.description}</p>
-        <a
-          href={tool.link}
-          target="_blank"
-          rel="noopener noreferrer"
+        <button
+          onClick={tool.action}
           className={`w-full block mt-auto px-4 py-2 text-sm font-medium text-white ${classes.button} rounded-lg transition`}
         >
-          Acessar Ferramenta
-        </a>
+          Abrir Solicitação
+        </button>
       </div>
     );
   };
+
+  // Adiciona o card de Suporte
+  const allTools = [
+    ...tools,
+    { 
+      name: "Contatar Suporte", 
+      description: "Precisa de ajuda? Abra um ticket para nossa equipe de suporte.", 
+      icon: "helpCircle", 
+      color: "blue", 
+      action: onContactSupport // Ação passada por props
+    }
+  ];
 
   return (
     <div className="animate-fade-in">
       <h2 className="text-3xl font-bold text-gray-800 dark:text-white mb-6">Central de Ferramentas</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        {tools.map(tool => <ToolCard key={tool.name} tool={tool} />)}
+        {allTools.map(tool => <ToolCard key={tool.name} tool={tool} />)}
       </div>
     </div>
   );
 };
+
+// --- Componentes de Configurações (Settings) ---
+// (ProfileSettings, AppearanceSettings, SecuritySettings, NotificationSettings, SettingsComponent)
+// ... (Permanecem os mesmos, mas ProfileSettings agora recebe 'user' e 'auth' corretamente)
 
 const SettingsInputField = ({ id, label, type, name, value, onChange, placeholder, disabled = false }) => (
   <div className="flex-1">
@@ -705,49 +953,45 @@ const ToggleSwitch = ({ id, name, label, description, checked, onChange }) => (
 );
 
 const ProfileSettings = ({ user }) => {
-   // Use o usuário passado como prop que vem do estado do App
   const [profile, setProfile] = useState({
     username: user?.username || '',
-    email: auth.currentUser?.email || '', // Pega email do Firebase Auth se disponível
+    email: user?.email || '', // Pega email do objeto user
     avatar: user?.avatar || '',
   });
 
-  // Atualiza o estado local se o usuário (prop) mudar
   useEffect(() => {
-     if(user) {
-         setProfile({
-            username: user.username,
-            email: auth.currentUser?.email || '',
-            avatar: user.avatar,
-         });
-     }
+    if(user) {
+      setProfile({
+        username: user.username,
+        email: user.email,
+        avatar: user.avatar,
+      });
+    }
   }, [user]);
 
   const handleProfileChange = (e) => {
     setProfile({ ...profile, [e.target.name]: e.target.value });
   };
 
-  const handleProfileSave = async (e) => { // Tornar async
+  const handleProfileSave = async (e) => {
     e.preventDefault();
-    if (!auth.currentUser) return; // Não faz nada se não estiver logado
+    if (!auth.currentUser) return; 
 
     try {
-        // Atualiza no Firestore (exemplo: nome e avatar)
-        const userDocRef = doc(db, "users", auth.currentUser.uid);
-        await setDoc(userDocRef, {
-            fullName: profile.username, // Assumindo que username é o fullName
-            avatar: profile.avatar,
-            // Mantém outros campos que já existiam (IMPORTANTE!)
-        }, { merge: true }); // merge: true evita sobrescrever campos existentes como role, email, etc.
+      const userDocRef = doc(db, "users", auth.currentUser.uid);
+      await updateDoc(userDocRef, { // updateDoc é mais seguro que setDoc com merge
+        fullName: profile.username,
+        avatar: profile.avatar,
+      });
 
-        // TODO: Atualizar o display name no Firebase Auth (opcional)
-        // await updateProfile(auth.currentUser, { displayName: profile.username, photoURL: profile.avatar });
+      // TODO: Atualizar o display name no Firebase Auth (opcional)
+      // await updateProfile(auth.currentUser, { displayName: profile.username, photoURL: profile.avatar });
 
-        alert('Perfil salvo com sucesso!');
-        // Opcional: Atualizar o estado 'user' no componente App para refletir a mudança imediatamente
+      alert('Perfil salvo com sucesso!');
+      // O estado 'user' global será atualizado pelo listener do App
     } catch (error) {
-        console.error("Erro ao salvar perfil:", error);
-        alert('Erro ao salvar perfil.');
+      console.error("Erro ao salvar perfil:", error);
+      alert('Erro ao salvar perfil.');
     }
   };
 
@@ -761,7 +1005,7 @@ const ProfileSettings = ({ user }) => {
           <SettingsInputField id="avatar" label="URL do Avatar" type="text" name="avatar" value={profile.avatar} onChange={handleProfileChange} />
         </div>
         <SettingsInputField id="username" label="Nome Completo" type="text" name="username" value={profile.username} onChange={handleProfileChange} />
-        <SettingsInputField id="email-profile" label="Email" type="email" name="email" value={profile.email} onChange={() => {}} disabled={true}/> {/* Email não é editável aqui */}
+        <SettingsInputField id="email-profile" label="Email" type="email" name="email" value={profile.email} onChange={() => {}} disabled={true}/>
         <div className="flex justify-end pt-2">
           <button type="submit" className="px-5 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition duration-150 ease-in-out shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
             Salvar Alterações
@@ -772,8 +1016,6 @@ const ProfileSettings = ({ user }) => {
   );
 };
 
-
-// ... (AppearanceSettings, SecuritySettings, NotificationSettings, SettingsComponent continuam iguais)
 const AppearanceSettings = ({ darkMode, toggleDarkMode }) => (
   <div className="animate-fade-in">
     <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2">Aparência</h3>
@@ -790,6 +1032,7 @@ const AppearanceSettings = ({ darkMode, toggleDarkMode }) => (
 );
 
 const SecuritySettings = () => {
+  // ... (componente permanece o mesmo) ...
   const [passwords, setPasswords] = useState({ current: '', new: '', confirm: ''});
   const handlePasswordChange = (e) => setPasswords({...passwords, [e.target.name]: e.target.value});
   const handlePasswordSave = (e) => {
@@ -798,7 +1041,7 @@ const SecuritySettings = () => {
       alert('A nova senha e a confirmação não coincidem.');
       return;
     }
-    // Lógica para reautenticar e atualizar senha (updatePassword)
+    // TODO: Adicionar lógica real do Firebase (Reauthentication e updatePassword)
     alert('Senha alterada com sucesso! (Simulação)');
   };
   return (
@@ -819,6 +1062,7 @@ const SecuritySettings = () => {
 };
 
 const NotificationSettings = () => {
+  // ... (componente permanece o mesmo) ...
   const [notifications, setNotifications] = useState({
     email: true,
     inApp: true,
@@ -863,7 +1107,6 @@ const SettingsComponent = ({ user, darkMode, toggleDarkMode }) => {
 
   const renderTabContent = () => {
     switch (activeSettingTab) {
-      // Passa o user para ProfileSettings
       case 'perfil': return <ProfileSettings user={user} />;
       case 'aparencia': return <AppearanceSettings darkMode={darkMode} toggleDarkMode={toggleDarkMode} />;
       case 'seguranca': return <SecuritySettings />;
@@ -876,12 +1119,12 @@ const SettingsComponent = ({ user, darkMode, toggleDarkMode }) => {
   return (
     <div className="bg-white dark:bg-gray-800 p-6 md:p-8 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 animate-fade-in">
       <h2 className="text-3xl font-bold text-gray-800 dark:text-white mb-6">Configurações</h2>
-      <div className="flex border-b border-gray-200 dark:border-gray-700 mb-6">
+      <div className="flex overflow-x-auto border-b border-gray-200 dark:border-gray-700 mb-6">
         {tabs.map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveSettingTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-t-lg ${
+            className={`flex-shrink-0 flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-t-lg ${
               activeSettingTab === tab.id
                 ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400'
                 : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 border-b-2 border-transparent'
@@ -899,12 +1142,13 @@ const SettingsComponent = ({ user, darkMode, toggleDarkMode }) => {
   );
 };
 
-// ... (StaticPieChart, Dashboards específicos continuam iguais)
+
 const StaticPieChart = ({ data }) => {
+  // ... (componente permanece o mesmo) ...
   const total = data.reduce((sum, item) => sum + item.value, 0);
   let startAngle = 0;
   const slices = data.map((item, i) => {
-     if (total === 0) return null; // Evita divisão por zero
+    if (total === 0) return null; // Evita divisão por zero
     const fraction = item.value / total;
     const endAngle = startAngle + fraction * 360;
     const largeArcFlag = fraction > 0.5 ? 1 : 0;
@@ -931,74 +1175,265 @@ const StaticPieChart = ({ data }) => {
   );
 };
 
-// --- DASHBOARDS (ATUALIZADOS) ---
-const DashboardVisitanteComponent = ({ searchQuery = '', activeTab, processes }) => { // Recebe processes
-  const feriasData = [
-    { name: 'Trabalhando', value: 1250, color: '#3b82f6' },
-    { name: 'Em Férias', value: 85, color: '#f59e0b' },
-    { name: 'Férias Previstas', value: 120, color: '#a855f7' },
-  ];
-  const filteredProcesses = useFilteredProcesses(searchQuery, processes); // Passa processes
+// --- DASHBOARDS ---
+
+// --- NOVO: DashboardSuporteComponent (antigo Visitante) ---
+const DashboardSuporteComponent = ({ user, searchQuery = '', activeTab, processes, onContactSupport }) => {
+  const [tickets, setTickets] = useState([]);
+  const [users, setUsers] = useState([]);
+
+  // Hook para carregar tickets de suporte
+  useEffect(() => {
+    const q = query(collection(db, "supportTickets"), orderBy("timestamp", "desc"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setTickets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return unsubscribe;
+  }, []);
+  
+  // Hook para carregar usuários (apenas para o Suporte)
+  useEffect(() => {
+    const q = query(collection(db, "users"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return unsubscribe;
+  }, []);
 
   const renderContent = () => {
     switch(activeTab) {
-      case 'Início':
-      case 'Dados Públicos':
-        return (
-          <div className="space-y-8 animate-fade-in">
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-bold text-gray-800 dark:text-white">Dados Públicos - Hollides Report</h2>
-                <button onClick={() => window.print()} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition">
-                  <Icon name="printer" className="w-4 h-4"/>
-                  Gerar Relatório
-                </button>
-              </div>
-              <StaticPieChart data={feriasData} />
-            </div>
-            <TabelaProcessosRecentes processes={filteredProcesses} />
-          </div>
-        );
+      case 'Tickets':
+        return <SupportTicketsView tickets={tickets} />;
+      case 'Usuários':
+        return <UsersView users={users} />;
       case 'Ferramentas':
-        return <FerramentasComponent />;
+        return <FerramentasComponent onContactSupport={onContactSupport} />;
       default:
-        return <PlaceholderComponent title="Página não encontrada" />;
+        return <SupportTicketsView tickets={tickets} />;
     }
   };
   return <>{renderContent()}</>;
 };
 
-const DashboardServidorComponent = ({ searchQuery = '', activeTab, processes }) => { // Recebe processes
-  const filteredProcesses = useFilteredProcesses(searchQuery, processes); // Passa processes
+// --- NOVO: Componente de Suporte (Tickets) ---
+const SupportTicketsView = ({ tickets }) => {
+  const getTicketStatusClass = (status) => {
+    const baseClasses = 'px-2 inline-flex text-xs leading-5 font-semibold rounded-full';
+    switch (status) {
+      case 'Aberto': return `${baseClasses} bg-red-100 text-red-800`;
+      case 'Em Andamento': return `${baseClasses} bg-yellow-100 text-yellow-800`;
+      case 'Fechado': return `${baseClasses} bg-green-100 text-green-800`;
+      default: return `${baseClasses} bg-gray-100 text-gray-800`;
+    }
+  };
+  
+  const handleTicketStatusChange = async (id, newStatus) => {
+    await updateDoc(doc(db, "supportTickets", id), { status: newStatus });
+  };
+
+  return (
+    <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 animate-fade-in">
+      <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-4">Tickets de Suporte</h2>
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+          <thead className="bg-gray-50 dark:bg-gray-700">
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Usuário</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Mensagem</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Status</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Ações</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+            {tickets.map((ticket) => (
+              <tr key={ticket.id}>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">{ticket.fromName}</td>
+                <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-300 max-w-xs truncate">{ticket.message}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                  <span className={getTicketStatusClass(ticket.status)}>{ticket.status}</span>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                  {ticket.status !== 'Fechado' && (
+                    <button onClick={() => handleTicketStatusChange(ticket.id, 'Fechado')} className="text-red-600 hover:text-red-900">
+                      Fechar
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+// --- NOVO: Componente de Suporte (Usuários) ---
+const UsersView = ({ users }) => {
+  const handleRoleChange = async (id, newRole) => {
+    if (window.confirm(`Tem certeza que deseja alterar o perfil deste usuário para ${newRole}?`)) {
+      await updateDoc(doc(db, "users", id), { role: newRole });
+    }
+  };
+
+  return (
+    <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 animate-fade-in">
+      <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-4">Gerenciamento de Usuários</h2>
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+          <thead className="bg-gray-50 dark:bg-gray-700">
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Nome</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Email</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Setor</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Perfil</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Ações</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+            {users.map((user) => (
+              <tr key={user.id}>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">{user.fullName}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">{user.email}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">{user.sector}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">{user.role}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                  {user.role !== 'Gestor' && <button onClick={() => handleRoleChange(user.id, 'Gestor')} className="text-blue-600 hover:text-blue-900">Tornar Gestor</button>}
+                  {user.role !== 'Analista' && <button onClick={() => handleRoleChange(user.id, 'Analista')} className="text-green-600 hover:text-green-900">Tornar Analista</button>}
+                  {user.role !== 'Suporte' && <button onClick={() => handleRoleChange(user.id, 'Suporte')} className="text-yellow-600 hover:text-yellow-900">Tornar Suporte</button>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+
+// --- ATUALIZADO: DashboardAnalistaComponent (antigo Servidor) ---
+const DashboardAnalistaComponent = ({ searchQuery = '', activeTab, user, darkMode, toggleDarkMode, processes, onContactSupport, onEditProcess }) => {
+  const filteredProcesses = useFilteredProcesses(searchQuery, processes);
+  
   const renderContent = () => {
     switch (activeTab) {
       case 'Início':
+        return <AnalystHomeComponent />; // --- NOVA TELA DE INÍCIO ---
       case 'Meus Processos':
         return (
-          <div className="space-y-8 animate-fade-in">
-            <div className="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 text-blue-800 dark:text-blue-200 p-4 rounded-r-lg">
-              <p>Você pode visualizar e gerenciar os processos atribuídos a você. Para análises de resultados, consulte seu gestor.</p>
+          <div className="space-y-6">
+            <div className="flex justify-end">
+              <button 
+                onClick={() => onEditProcess(null)} // Passa null para indicar "novo processo"
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition shadow-lg"
+              >
+                <Icon name="plus" className="w-5 h-5" />
+                Registrar Novo Processo
+              </button>
             </div>
-            <TabelaProcessosRecentes processes={filteredProcesses} />
+            <TabelaProcessosRecentes 
+              processes={filteredProcesses} 
+              onEditProcess={onEditProcess}
+              userRole={user.role}
+            />
           </div>
         );
       case 'Ferramentas':
-        return <FerramentasComponent />;
+        return <FerramentasComponent onContactSupport={onContactSupport} />;
+      case 'Configurações':
+        return <SettingsComponent user={user} darkMode={darkMode} toggleDarkMode={toggleDarkMode} />;
       default:
-        return <PlaceholderComponent title="Página não encontrada" />;
+        return <AnalystHomeComponent />;
     }
   };
   return <>{renderContent()}</>;
 };
 
+// --- NOVO: AnalystHomeComponent (para a aba "Início" do Analista) ---
+const AnalystHomeComponent = () => {
+  const faqs = [
+    { q: "Como registro um novo processo?", a: "Vá para a aba 'Meus Processos' e clique no botão 'Registrar Novo Processo'. Preencha todos os campos e salve." },
+    { q: "Como altero o status de um processo?", a: "Vá para 'Meus Processos', encontre o processo na lista e clique em 'Alterar'. Você poderá modificar o status no modal que se abrirá." },
+    { q: "Onde vejo as ferramentas?", a: "Clique na aba 'Ferramentas' no menu lateral para acessar o Hollides, Reader, Ticker e o contato de suporte." },
+  ];
+  
+  return (
+    <div className="space-y-8 animate-fade-in">
+      {/* Sobre */}
+      <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700">
+        <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-4">Sobre o SITEC</h2>
+        <p className="text-gray-600 dark:text-gray-400 leading-relaxed">
+          Bem-vindo ao SITEC, a sua plataforma centralizada para gestão de processos e produtividade.
+          Este sistema foi desenhado para simplificar seu fluxo de trabalho diário.
+        </p>
+        <ul className="list-disc list-inside mt-4 space-y-2 text-gray-600 dark:text-gray-400">
+          <li>Na aba <strong>Meus Processos</strong>, você pode registrar sua produção diária e alterar o status dos processos sob sua responsabilidade.</li>
+          <li>Em <strong>Ferramentas</strong>, você encontra links úteis e o canal direto para contato com o suporte.</li>
+          <li>Em <strong>Configurações</strong>, você pode atualizar seu perfil e senha.</li>
+        </ul>
+      </div>
 
-const DashboardGestorComponent = ({ searchQuery = '', activeTab, user, darkMode, toggleDarkMode, processes }) => { // Recebe processes
+      {/* Notificações (Simulado - o real está no sino) */}
+      <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700">
+        <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-4">Mural de Notificações</h2>
+        <div className="space-y-4">
+          <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+            <p className="font-semibold text-blue-800 dark:text-blue-200">Atualização do Sistema</p>
+            <p className="text-sm text-blue-700 dark:text-blue-300">O módulo 'Hollides' foi atualizado. (1 dia atrás)</p>
+          </div>
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-lg">
+            <p className="font-semibold text-yellow-800 dark:text-yellow-200">Aviso de Prazo</p>
+            <p className="text-sm text-yellow-700 dark:text-yellow-300">Lembrete: Processos pendentes há mais de 48h devem ser priorizados. (3 dias atrás)</p>
+          </div>
+        </div>
+      </div>
+
+      {/* FAQ */}
+      <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700">
+        <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-4">Perguntas Recorrentes (FAQ)</h2>
+        <div className="space-y-4">
+          {faqs.map((faq, index) => (
+            <details key={index} className="group">
+              <summary className="cursor-pointer font-medium text-gray-700 dark:text-gray-300 group-hover:text-blue-600">
+                {faq.q}
+              </summary>
+              <p className="text-gray-600 dark:text-gray-400 mt-2 pl-4 border-l-2 border-gray-200 dark:border-gray-600">
+                {faq.a}
+              </p>
+            </details>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+// --- ATUALIZADO: DashboardGestorComponent ---
+const DashboardGestorComponent = ({ searchQuery = '', activeTab, user, darkMode, toggleDarkMode, processes, onContactSupport, onEditProcess }) => {
   const [summary, setSummary] = useState('');
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState('');
-  const filteredProcesses = useFilteredProcesses(searchQuery, processes); // Passa processes
+  const filteredProcesses = useFilteredProcesses(searchQuery, processes);
+
+  // Calcula estatísticas reais baseadas nos processos carregados
+  const stats = useMemo(() => {
+    const total = processes.length;
+    const aprovados = processes.filter(p => p.status === 'Aprovado').length;
+    const emAnalise = processes.filter(p => p.status === 'Em Análise').length;
+    const taxaAprovacao = total === 0 ? 0 : (aprovados / total) * 100;
+    
+    return {
+      total,
+      aprovados,
+      emAnalise,
+      taxaAprovacao: taxaAprovacao.toFixed(1) + '%'
+    };
+  }, [processes]);
 
   const StatCard = ({ title, value, icon, color }) => {
+    // ... (componente StatCard permanece o mesmo) ...
     const colorMap = {
       blue: 'text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/50',
       green: 'text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/50',
@@ -1023,9 +1458,9 @@ const DashboardGestorComponent = ({ searchQuery = '', activeTab, user, darkMode,
     setIsSummaryLoading(true);
     setSummaryError('');
     setSummary('');
-    // Simulação de chamada à API
+    // Simulação de chamada à API (agora usa dados reais)
     setTimeout(() => {
-      setSummary("✅ **Resumo Gerencial**\n\n- Total de processos: 1.204\n- 73.9% aprovados.\n- Principais gargalos: análise de processos pendentes (>48h).\n- **Ação recomendada**: priorizar análise dos 214 processos em análise.");
+      setSummary(`✅ **Resumo Gerencial**\n\n- Total de processos: ${stats.total}\n- ${stats.taxaAprovacao} aprovados.\n- Processos em análise: ${stats.emAnalise}.\n- **Ação recomendada**: Verificar processos pendentes e em análise para garantir o fluxo.`);
       setIsSummaryLoading(false);
     }, 1500);
   };
@@ -1068,22 +1503,29 @@ const DashboardGestorComponent = ({ searchQuery = '', activeTab, user, darkMode,
               </div>
             )}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <StatCard title="Total de Processos" value="1.204" icon="folderKanban" color="blue" />
-              <StatCard title="Processos Aprovados" value="890" icon="shieldCheck" color="green" />
-              <StatCard title="Em Análise" value="214" icon="clock" color="yellow" />
-              <StatCard title="Taxa de Aprovação" value="73.9%" icon="pieChart" color="purple" />
+              <StatCard title="Total de Processos" value={stats.total} icon="folderKanban" color="blue" />
+              <StatCard title="Processos Aprovados" value={stats.aprovados} icon="shieldCheck" color="green" />
+              <StatCard title="Em Análise" value={stats.emAnalise} icon="clock" color="yellow" />
+              <StatCard title="Taxa de Aprovação" value={stats.taxaAprovacao} icon="pieChart" color="purple" />
             </div>
-            <TabelaProcessosRecentes processes={filteredProcesses} />
+            <TabelaProcessosRecentes 
+              processes={filteredProcesses} 
+              onEditProcess={onEditProcess}
+              userRole={user.role}
+            />
           </div>
         );
       case 'Processos':
-        return <TabelaProcessosRecentes processes={filteredProcesses} />;
+        return <TabelaProcessosRecentes 
+                  processes={filteredProcesses} 
+                  onEditProcess={onEditProcess}
+                  userRole={user.role}
+                />;
       case 'Relatórios':
         return <PlaceholderComponent title="Relatórios" />;
       case 'Ferramentas':
-        return <FerramentasComponent />;
+        return <FerramentasComponent onContactSupport={onContactSupport} />;
       case 'Configurações':
-         // Passa o user para SettingsComponent
         return <SettingsComponent user={user} darkMode={darkMode} toggleDarkMode={toggleDarkMode} />;
       default:
         return <PlaceholderComponent title="Página não encontrada" />;
@@ -1093,172 +1535,194 @@ const DashboardGestorComponent = ({ searchQuery = '', activeTab, user, darkMode,
 };
 
 
-// --- COMPONENTE PRINCIPAL APP (ATUALIZADO PARA FIREBASE) ---
+// --- COMPONENTE PRINCIPAL APP (ATUALIZADO COM NOVOS STATES E HANDLERS) ---
 const App = () => {
   const [view, setView] = useState('login');
-  const [user, setUser] = useState(null); // Armazena dados do Firestore (nome, role, avatar)
+  const [user, setUser] = useState(null); 
   const [darkMode, setDarkMode] = useState(false);
-  const [activeTab, setActiveTab] = useState('Início');
-  const [isLoadingAuth, setIsLoadingAuth] = useState(true); // Estado de loading
-  const [processes, setProcesses] = useState([]); // <-- NOVO ESTADO PARA PROCESSOS
+  // ATUALIZADO: Aba padrão muda para o perfil de Suporte
+  const [activeTab, setActiveTab] = useState('Tickets'); 
+  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+  const [processes, setProcesses] = useState([]); 
+  
+  // --- NOVOS STATES PARA MODAIS ---
+  const [isProcessModalOpen, setIsProcessModalOpen] = useState(false);
+  const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
+  const [currentProcess, setCurrentProcess] = useState(null); // Para edição
 
-  // Listener do Firebase Auth para persistência
+  // Listener do Firebase Auth (ATUALIZADO para pegar 'setor')
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        // Usuário está logado no Firebase Auth
-        // Busca os dados complementares no Firestore
         const userDocRef = doc(db, "users", firebaseUser.uid);
-        const userDoc = await getDoc(userDocRef);
-
-        if (userDoc.exists()) {
-          const userData = userDoc.data();
-          // Define o estado 'user' com os dados combinados
-          setUser({
-            uid: firebaseUser.uid, // Guarda o UID para referência futura
-            username: userData.fullName, // Nome completo do Firestore
-            role: userData.role,       // Role do Firestore
-            // Avatar pode vir do Firestore ou ser gerado
-            avatar: userData.avatar || `https://placehold.co/100x100/eeeeee/333333?text=${userData.fullName?.charAt(0) || '?'}`,
-            email: firebaseUser.email // Email do Firebase Auth
-          });
-          setView('dashboard'); // Muda para a view do dashboard
-        } else {
-          // Caso estranho: usuário existe no Auth mas não no Firestore
-          console.error("Usuário autenticado mas sem dados no Firestore:", firebaseUser.uid);
-          await signOut(auth); // Desloga para evitar inconsistências
-          setUser(null);
-          setView('login');
-        }
+        // Ouve mudanças no documento do usuário em tempo real
+        const unsubDoc = onSnapshot(userDocRef, (userDoc) => {
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            setUser({
+              uid: firebaseUser.uid,
+              username: userData.fullName,
+              role: userData.role,
+              sector: userData.sector, // --- CAMPO SETOR ADICIONADO ---
+              avatar: userData.avatar || `https://placehold.co/100x100/eeeeee/333333?text=${userData.fullName?.charAt(0) || '?'}`,
+              email: firebaseUser.email
+            });
+            // Define a aba padrão baseada no role
+            setActiveTab(getDefaultTabForRole(userData.role));
+            setView('dashboard');
+          } else {
+            console.error("Usuário autenticado mas sem dados no Firestore:", firebaseUser.uid);
+            signOut(auth);
+          }
+        });
+        setIsLoadingAuth(false);
+        return () => unsubDoc(); // Limpa o listener do documento
+        
       } else {
-        // Usuário está deslogado
         setUser(null);
-        setView('login'); // Garante que volte para a tela de login
+        setView('login');
+        setIsLoadingAuth(false);
       }
-      setIsLoadingAuth(false); // Marca que a verificação inicial terminou
     });
+    return () => unsubscribe(); // Limpa o listener da autenticação
+  }, []);
 
-    // Função de limpeza para remover o listener quando o componente desmontar
-    return () => unsubscribe();
-  }, []); // Array vazio [] significa que este efeito roda apenas uma vez
-
-  // Efeitos para Dark Mode (permanecem iguais)
+  // Efeitos para Dark Mode
   useEffect(() => {
     const isDark = localStorage.getItem('darkMode') === 'true';
     setDarkMode(isDark);
   }, []);
 
   useEffect(() => {
-    if (darkMode) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('darkMode', 'true');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('darkMode', 'false');
-    }
+    if (darkMode) document.documentElement.classList.add('dark');
+    else document.documentElement.classList.remove('dark');
+    localStorage.setItem('darkMode', String(darkMode));
   }, [darkMode]);
 
-  // --- NOVO USEEFFECT PARA CARREGAR PROCESSOS ---
+  // --- ATUALIZADO: useEffect para carregar processos (agora filtra por setor) ---
   useEffect(() => {
-    if (user) { // Apenas busca processos se o utilizador estiver logado
-      // IMPORTANTE: Altere "processes" para o nome exato da sua coleção no Firestore
-      const q = query(collection(db, "processes")); 
+    if (user) {
+      let q;
+      // Gestor e Suporte veem todos os processos
+      if (user.role === 'Gestor' || user.role === 'Suporte') {
+        q = query(collection(db, "processes"), orderBy("dataSubmissao", "desc"));
+      } 
+      // Analista vê apenas os processos do seu setor
+      else if (user.role === 'Analista') {
+        q = query(
+          collection(db, "processes"), 
+          where("sector", "==", user.sector),
+          orderBy("dataSubmissao", "desc")
+        );
+      } else {
+        // Se for um role desconhecido, não carrega nada
+        setProcesses([]);
+        return;
+      }
 
       const unsubscribe = onSnapshot(q, (querySnapshot) => {
         const processesData = [];
         querySnapshot.forEach((doc) => {
           const data = doc.data();
-          // Converte Timestamp do Firebase para data formatada
-          // Garante que o campo existe e é um timestamp antes de converter
           const dataSubmissao = (data.dataSubmissao && data.dataSubmissao.toDate)
-            ? data.dataSubmissao.toDate().toISOString().split('T')[0]
-            : 'Data Inválida'; // Fallback se a data estiver ausente ou mal formatada
+            ? data.dataSubmissao.toDate().toLocaleDateString('pt-BR') // Formato BR
+            : 'Data Inválida'; 
           
           processesData.push({ 
             id: doc.id, 
             ...data,
-            dataSubmissao: dataSubmissao // Usa a data formatada
+            dataSubmissao: dataSubmissao 
           });
         });
         setProcesses(processesData);
       });
 
-      // Limpa o listener quando o componente desmonta ou o utilizador faz logout
       return () => unsubscribe();
     } else {
-      setProcesses([]); // Limpa os processos se o utilizador fizer logout
+      setProcesses([]);
     }
-  }, [user]); // Depende do 'user' para re-executar
+  }, [user]); // Depende do 'user'
 
+  // Define a aba padrão ao logar
+  const getDefaultTabForRole = (role) => {
+    switch(role) {
+      case 'Gestor': return 'Início';
+      case 'Analista': return 'Início';
+      case 'Suporte': return 'Tickets';
+      default: return 'Início';
+    }
+  };
+  
   const toggleDarkMode = () => setDarkMode(!darkMode);
 
-  // handleLogin é chamado pelo LoginComponent, mas o estado principal
-  // é gerenciado pelo onAuthStateChanged
-  const handleLogin = (userInfo) => {
-    // setUser(userInfo); // Não é mais necessário definir aqui, o listener faz isso
-    setActiveTab('Início');
-    setView('dashboard');
-  };
-
-  // handleLogout agora usa o signOut do Firebase
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      // O listener onAuthStateChanged vai automaticamente setar user para null e view para 'login'
+      setActiveTab('Login'); // Reseta a aba
     } catch (error) {
       console.error("Erro ao fazer logout:", error);
     }
   };
+  
+  // --- NOVOS HANDLERS PARA MODAIS ---
+  
+  // Abre o modal de processo (null = novo, objeto = editar)
+  const handleEditProcess = (process) => {
+    setCurrentProcess(process);
+    setIsProcessModalOpen(true);
+  };
+  
+  // Abre o modal de contato com o suporte
+  const handleContactSupport = () => {
+    setIsSupportModalOpen(true);
+  };
 
-  // Função para renderizar o Dashboard correto baseado no 'role' do usuário
+  // Função para renderizar o Dashboard correto
   const renderDashboard = () => {
-    if (!user) return null; // Não renderiza nada se user for null
+    if (!user) return null;
 
     let DashboardComponent;
     switch (user.role) {
       case 'Gestor': DashboardComponent = <DashboardGestorComponent />; break;
-      case 'Servidor': DashboardComponent = <DashboardServidorComponent />; break;
-      case 'Visitante': DashboardComponent = <DashboardVisitanteComponent />; break;
+      case 'Analista': DashboardComponent = <DashboardAnalistaComponent />; break;
+      case 'Suporte': DashboardComponent = <DashboardSuporteComponent />; break;
       default:
-        // Fallback para caso o role não seja reconhecido (ou seja null/undefined)
         console.warn("Role de usuário não reconhecido:", user.role);
-        DashboardComponent = <DashboardVisitanteComponent />; // Mostra como visitante por padrão
+        DashboardComponent = <DashboardSuporteComponent />; // Fallback
         break;
     }
     return (
       <DashboardLayout
-        user={user} // Passa o objeto user completo
+        user={user}
         onLogout={handleLogout}
         darkMode={darkMode}
         toggleDarkMode={toggleDarkMode}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
       >
-         {/* Passa as props necessárias (incluindo processes) para o componente filho */}
         {React.cloneElement(DashboardComponent, { 
           user, 
           darkMode, 
           toggleDarkMode, 
           activeTab,
-          processes // <-- PASSA OS PROCESSOS AQUI
+          processes,
+          onContactSupport: handleContactSupport, // Passa a função para abrir o modal
+          onEditProcess: handleEditProcess // Passa a função para abrir o modal
         })}
       </DashboardLayout>
     );
   };
 
-
-  // Função para decidir qual componente de autenticação ou o dashboard renderizar
   const renderView = () => {
     switch (view) {
-      case 'login': return <LoginComponent onViewChange={setView} onLogin={handleLogin} />;
+      case 'login': return <LoginComponent onViewChange={setView} onLogin={() => {}} />;
       case 'register': return <RegisterComponent onViewChange={setView} />;
       case 'forgotPassword': return <ForgotPasswordComponent onViewChange={setView} />;
       case 'dashboard': return renderDashboard();
-      default: return <LoginComponent onViewChange={setView} onLogin={handleLogin} />;
+      default: return <LoginComponent onViewChange={setView} onLogin={() => {}} />;
     }
   };
 
-  // Mostra "Carregando..." enquanto o Firebase verifica o estado de autenticação
   if (isLoadingAuth) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900">
@@ -1267,9 +1731,259 @@ const App = () => {
     );
   }
 
-  // Renderiza a view correta após a verificação
-  return renderView();
+  return (
+    <>
+      {renderView()}
+      
+      {/* Modais Globais */}
+      <ProcessModal
+        isOpen={isProcessModalOpen}
+        setIsOpen={setIsProcessModalOpen}
+        process={currentProcess}
+        user={user}
+      />
+      <SupportModal
+        isOpen={isSupportModalOpen}
+        setIsOpen={setIsSupportModalOpen}
+        user={user}
+      />
+    </>
+  );
 };
 
-export default App;
+// --- NOVO: ProcessModal (Para registrar e alterar processos) ---
+const ProcessModal = ({ isOpen, setIsOpen, process, user }) => {
+  const [formData, setFormData] = useState({
+    solicitante: '',
+    status: 'Pendente',
+    descricao: ''
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isEditing = process !== null;
+  const statusOptions = ["Pendente", "Em Análise", "Aprovado", "Rejeitado"];
 
+  useEffect(() => {
+    if (isEditing) {
+      setFormData({
+        solicitante: process.solicitante || '',
+        status: process.status || 'Pendente',
+        descricao: process.descricao || ''
+      });
+    } else {
+      // Reset para novo processo
+      setFormData({
+        solicitante: '',
+        status: 'Pendente',
+        descricao: ''
+      });
+    }
+  }, [process, isOpen]); // Roda quando o modal abre ou o processo muda
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!user) return;
+    setIsSubmitting(true);
+    
+    // Cria o log de auditoria
+    const auditEntry = {
+      action: isEditing ? "Alteração de Status" : "Criação de Processo",
+      status: formData.status,
+      user: user.username,
+      userId: user.uid,
+      timestamp: Timestamp.now()
+    };
+    
+    try {
+      if (isEditing) {
+        // --- ALTERA PROCESSO ---
+        const processRef = doc(db, "processes", process.id);
+        const existingLogs = process.auditLog || [];
+        await updateDoc(processRef, {
+          ...formData,
+          auditLog: [...existingLogs, auditEntry] // Adiciona novo log
+        });
+      } else {
+        // --- CRIA NOVO PROCESSO ---
+        await addDoc(collection(db, "processes"), {
+          ...formData,
+          analystId: user.uid,
+          analystName: user.username,
+          sector: user.sector,
+          dataSubmissao: Timestamp.now(),
+          auditLog: [auditEntry] // Inicia o log
+        });
+      }
+      setIsSubmitting(false);
+      setIsOpen(false);
+    } catch (error) {
+      console.error("Erro ao salvar processo:", error);
+      setIsSubmitting(false);
+      alert("Erro ao salvar processo.");
+    }
+  };
+
+  return (
+    <Transition show={isOpen} as={Fragment}>
+      <Dialog as="div" className="relative z-50" onClose={setIsOpen}>
+        <Transition.Child as={Fragment} enter="ease-out duration-300" enterFrom="opacity-0" enterTo="opacity-100" leave="ease-in duration-200" leaveFrom="opacity-100" leaveTo="opacity-0">
+          <div className="fixed inset-0 bg-black/30" aria-hidden="true" />
+        </Transition.Child>
+        <div className="fixed inset-0 overflow-y-auto">
+          <div className="flex min-h-full items-center justify-center p-4 text-center">
+            <Transition.Child as={Fragment} enter="ease-out duration-300" enterFrom="opacity-0 scale-95" enterTo="opacity-100 scale-100" leave="ease-in duration-200" leaveFrom="opacity-100 scale-100" leaveTo="opacity-0 scale-95">
+              <Dialog.Panel className="w-full max-w-lg transform overflow-hidden rounded-2xl bg-white dark:bg-gray-800 p-6 text-left align-middle shadow-xl transition-all">
+                <Dialog.Title as="h3" className="text-xl font-bold leading-6 text-gray-900 dark:text-white">
+                  {isEditing ? 'Alterar Processo' : 'Registrar Novo Processo'}
+                </Dialog.Title>
+                <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+                  <InputField
+                    id="solicitante"
+                    name="solicitante"
+                    label="Nome do Solicitante"
+                    type="text"
+                    value={formData.solicitante}
+                    onChange={handleChange}
+                    required
+                  />
+                  <SelectField
+                    id="status"
+                    name="status"
+                    label="Status do Processo"
+                    value={formData.status}
+                    onChange={handleChange}
+                    required
+                  >
+                    {statusOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                  </SelectField>
+                  <div>
+                    <label htmlFor="descricao" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Descrição/Observações</label>
+                    <textarea
+                      id="descricao"
+                      name="descricao"
+                      rows="4"
+                      className="mt-1 block w-full px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100"
+                      value={formData.descricao}
+                      onChange={handleChange}
+                    />
+                  </div>
+                  <div className="mt-6 flex justify-end space-x-3">
+                    <button
+                      type="button"
+                      disabled={isSubmitting}
+                      className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+                      onClick={() => setIsOpen(false)}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {isSubmitting ? 'Salvando...' : 'Salvar Processo'}
+                    </button>
+                  </div>
+                </form>
+              </Dialog.Panel>
+            </Transition.Child>
+          </div>
+        </div>
+      </Dialog>
+    </Transition>
+  );
+};
+
+// --- NOVO: SupportModal (Para contatar o suporte) ---
+const SupportModal = ({ isOpen, setIsOpen, user }) => {
+  const [message, setMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!user || !message) return;
+    setIsSubmitting(true);
+    
+    try {
+      await addDoc(collection(db, "supportTickets"), {
+        message: message,
+        fromId: user.uid,
+        fromName: user.username,
+        fromSector: user.sector,
+        status: "Aberto",
+        timestamp: serverTimestamp()
+      });
+      setIsSubmitting(false);
+      setMessage('');
+      setIsOpen(false);
+      alert('Ticket de suporte enviado com sucesso!');
+    } catch (error) {
+      console.error("Erro ao enviar ticket:", error);
+      setIsSubmitting(false);
+      alert('Erro ao enviar ticket. Tente novamente.');
+    }
+  };
+
+  return (
+    <Transition show={isOpen} as={Fragment}>
+      <Dialog as="div" className="relative z-50" onClose={setIsOpen}>
+        <Transition.Child as={Fragment} enter="ease-out duration-300" enterFrom="opacity-0" enterTo="opacity-100" leave="ease-in duration-200" leaveFrom="opacity-100" leaveTo="opacity-0">
+          <div className="fixed inset-0 bg-black/30" aria-hidden="true" />
+        </Transition.Child>
+        <div className="fixed inset-0 overflow-y-auto">
+          <div className="flex min-h-full items-center justify-center p-4 text-center">
+            <Transition.Child as={Fragment} enter="ease-out duration-300" enterFrom="opacity-0 scale-95" enterTo="opacity-100 scale-100" leave="ease-in duration-200" leaveFrom="opacity-100 scale-100" leaveTo="opacity-0 scale-95">
+              <Dialog.Panel className="w-full max-w-lg transform overflow-hidden rounded-2xl bg-white dark:bg-gray-800 p-6 text-left align-middle shadow-xl transition-all">
+                <Dialog.Title as="h3" className="text-xl font-bold leading-6 text-gray-900 dark:text-white">
+                  Contatar Suporte
+                </Dialog.Title>
+                <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Descreva seu problema, solicitação ou feedback. Nossa equipe de suporte (Perfil: Suporte) receberá sua mensagem.
+                  </p>
+                  <div>
+                    <label htmlFor="support-message" className="sr-only">Sua Mensagem</label>
+                    <textarea
+                      id="support-message"
+                      name="message"
+                      rows="5"
+                      className="mt-1 block w-full px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100"
+                      value={message}
+                      onChange={(e) => setMessage(e.target.value)}
+                      placeholder="Digite sua mensagem aqui..."
+                      required
+                    />
+                  </div>
+                  <div className="mt-6 flex justify-end space-x-3">
+                    <button
+                      type="button"
+                      disabled={isSubmitting}
+                      className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+                      onClick={() => setIsOpen(false)}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSubmitting || !message}
+                      className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {isSubmitting ? 'Enviando...' : 'Enviar Ticket'}
+                    </button>
+                  </div>
+                </form>
+              </Dialog.Panel>
+            </Transition.Child>
+          </div>
+        </div>
+      </Dialog>
+    </Transition>
+  );
+};
+
+
+export default App;
