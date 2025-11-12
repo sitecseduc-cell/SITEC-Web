@@ -1,17 +1,17 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom'; // 1. Importe o useNavigate
+import { useNavigate } from 'react-router-dom';
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from '../../firebaseConfig'; // 2. Ajuste os caminhos
+import { auth } from '../../firebaseConfig';
 import AuthLayout from '../../layouts/AuthLayout';
+import InputField from '../../components/InputField'; // 1. Importe o InputField
 
-// 3. Remova 'onViewChange' e 'onLogin' das props
 const LoginComponent = () => {
   const [username, setUsername] = useState(''); // E-MAIL
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  const navigate = useNavigate(); // 4. Inicialize o hook
+  const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -21,8 +21,7 @@ const LoginComponent = () => {
 
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      // O onAuthStateChanged (no AuthContext) vai cuidar da transição de tela
-      // O navigate('/') será feito pelo App.jsx principal
+      // O AuthContext cuida do resto
     } catch (error) {
       setMessage('E-mail ou senha inválidos.');
       setIsSubmitting(false);
@@ -38,36 +37,34 @@ const LoginComponent = () => {
             <p>{message}</p>
           </div>
         )}
-        <div>
-          <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300">E-mail</label>
-          <input
-            id="username"
-            type="email"
-            className="mt-1 block w-full px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100"
-            placeholder="seu.email@exemplo.com"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            required
-            disabled={isSubmitting}
-          />
-        </div>
-        <div>
-          <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Senha</label>
-          <input
-            id="password"
-            type="password"
-            className="mt-1 block w-full px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100"
-            placeholder="Digite sua senha"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            disabled={isSubmitting}
-          />
-        </div>
+        
+        {/* 2. Use o Componente InputField */}
+        <InputField
+          id="username"
+          label="E-mail"
+          type="email"
+          placeholder="seu.email@exemplo.com"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          required
+          disabled={isSubmitting}
+        />
+        
+        {/* 3. Use o Componente InputField */}
+        <InputField
+          id="password"
+          label="Senha"
+          type="password"
+          placeholder="Digite sua senha"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+          disabled={isSubmitting}
+        />
+
         <div className="flex items-center justify-end text-sm">
           <button
             type="button"
-            // 5. Use o navigate
             onClick={() => navigate('/forgot-password')} 
             className="font-medium text-blue-600 hover:text-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
             disabled={isSubmitting}
@@ -86,7 +83,6 @@ const LoginComponent = () => {
       <div className="mt-6 text-center text-sm text-gray-600 dark:text-gray-400">
         Não tem uma conta?{' '}
         <button
-          // 6. Use o navigate
           onClick={() => navigate('/register')}
           type="button"
           className="text-blue-600 hover:text-blue-500 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
