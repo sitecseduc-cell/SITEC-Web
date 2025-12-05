@@ -1,10 +1,30 @@
-import React, { Fragment } from 'react';
+import React, { Fragment, useState, useEffect } from 'react'; // Adicione useState, useEffect
 import { NavLink } from 'react-router-dom';
 import { Dialog, Transition } from '@headlessui/react';
 import Icon from '../components/Icon';
+import useKonamiCode from '../hooks/useKonamiCode'; // 1. Importe o hook
 
 const Sidebar = ({ user, onLogout, isMobileSidebarOpen, setIsMobileSidebarOpen }) => {
   
+  // 2. Estado para controlar se o Easter Egg está desbloqueado
+  // Usamos localStorage para que, uma vez desbloqueado, fique para sempre (até limpar cache)
+  const [isEasterEggUnlocked, setIsEasterEggUnlocked] = useState(() => {
+    return localStorage.getItem('sitec_easter_egg') === 'true';
+  });
+
+  // 3. Usa o Hook
+  const konamiSuccess = useKonamiCode();
+
+  // 4. Efeito para desbloquear
+  useEffect(() => {
+    if (konamiSuccess && !isEasterEggUnlocked) {
+      setIsEasterEggUnlocked(true);
+      localStorage.setItem('sitec_easter_egg', 'true');
+      alert("🥚 VOCÊ DESBLOQUEOU UM SEGREDO! 🥚\nConfira o menu lateral...");
+    }
+  }, [konamiSuccess, isEasterEggUnlocked]);
+
+  // Definição dos itens
   const navItems = {
     'Gestor': [
       { icon: 'home', label: 'Visão Geral', path: '/dashboard', end: true },
@@ -13,25 +33,39 @@ const Sidebar = ({ user, onLogout, isMobileSidebarOpen, setIsMobileSidebarOpen }
       { icon: 'briefcase', label: 'Ferramentas', path: '/dashboard/ferramentas' },
       { icon: 'settings', label: 'Configurações', path: '/dashboard/configuracoes' }
     ],
-    // ... (Mantenha os itens de Analista e Suporte iguais) ...
+    // ... (Mantenha Analista e Suporte iguais) ...
     'Analista': [
-      { icon: 'home', label: 'Visão Geral', path: '/dashboard', end: true },
-      { icon: 'folderKanban', label: 'Meus Processos', path: '/dashboard/processos' },
-      { icon: 'briefcase', label: 'Ferramentas', path: '/dashboard/ferramentas' },
-      { icon: 'settings', label: 'Configurações', path: '/dashboard/configuracoes' }
+        { icon: 'home', label: 'Visão Geral', path: '/dashboard', end: true },
+        { icon: 'folderKanban', label: 'Meus Processos', path: '/dashboard/processos' },
+        { icon: 'briefcase', label: 'Ferramentas', path: '/dashboard/ferramentas' },
+        { icon: 'settings', label: 'Configurações', path: '/dashboard/configuracoes' }
     ],
     'Suporte': [
-      { icon: 'lifeBuoy', label: 'Tickets', path: '/dashboard', end: true },
-      { icon: 'users', label: 'Usuários', path: '/dashboard/usuarios' },
-      { icon: 'briefcase', label: 'Ferramentas', path: '/dashboard/ferramentas' }
-    ],
+        { icon: 'lifeBuoy', label: 'Tickets', path: '/dashboard', end: true },
+        { icon: 'users', label: 'Usuários', path: '/dashboard/usuarios' },
+        { icon: 'briefcase', label: 'Ferramentas', path: '/dashboard/ferramentas' }
+    ]
   };
 
-  const menuItems = navItems[user?.role] || [];
+  // 5. Adiciona o item se desbloqueado
+  let menuItems = navItems[user?.role] || [];
+  
+  if (isEasterEggUnlocked) {
+    // Adiciona logo após Configurações (ou no final)
+    menuItems = [
+      ...menuItems,
+      { 
+        icon: 'sparkles', // Ícone especial
+        label: 'Sobre a SEDUC', 
+        path: '/dashboard/sobre-seduc',
+        special: true // Flag para estilizar diferente (opcional)
+      }
+    ];
+  }
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
-      {/* Header da Logo - Mais limpo */}
+      {/* ... (Header da Logo igual) ... */}
       <div className="flex items-center h-24 px-8">
         <div className="bg-blue-600 p-2 rounded-xl shadow-lg shadow-blue-500/30 mr-3">
             <Icon name="logo" className="h-6 w-6 text-white" />
@@ -42,7 +76,6 @@ const Sidebar = ({ user, onLogout, isMobileSidebarOpen, setIsMobileSidebarOpen }
         </div>
       </div>
 
-      {/* Navegação - Botões mais modernos (Pills) */}
       <nav className="flex-1 px-4 space-y-2 overflow-y-auto py-4">
         {menuItems.map((item) => (
           <NavLink
@@ -55,6 +88,7 @@ const Sidebar = ({ user, onLogout, isMobileSidebarOpen, setIsMobileSidebarOpen }
               ${isActive 
                 ? 'bg-blue-600 text-white shadow-xl shadow-blue-500/20 translate-x-1' 
                 : 'text-gray-500 dark:text-gray-400 hover:bg-white dark:hover:bg-gray-800 hover:text-blue-600 dark:hover:text-blue-400 hover:shadow-md'}
+              ${item.special ? 'animate-pulse text-purple-500 hover:text-purple-700' : ''} 
             `}
           >
             {({ isActive }) => (
@@ -62,7 +96,7 @@ const Sidebar = ({ user, onLogout, isMobileSidebarOpen, setIsMobileSidebarOpen }
                     <Icon
                         name={item.icon}
                         className={`mr-4 h-5 w-5 flex-shrink-0 transition-transform duration-300 ${
-                            isActive ? 'text-white scale-110' : 'text-gray-400 group-hover:text-blue-500'
+                            isActive ? 'text-white scale-110' : (item.special ? 'text-purple-500' : 'text-gray-400 group-hover:text-blue-500')
                         }`}
                     />
                     {item.label}
@@ -71,58 +105,20 @@ const Sidebar = ({ user, onLogout, isMobileSidebarOpen, setIsMobileSidebarOpen }
           </NavLink>
         ))}
       </nav>
-
-      {/* Footer do Usuário - Cartão Flutuante */}
+      {/* ... (Footer do usuário igual) ... */}
       <div className="p-4 mt-auto">
-        <div className="bg-white dark:bg-[#1e293b] p-4 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-700/50">
-            <div className="flex items-center mb-3">
-            <img 
-                className="h-10 w-10 rounded-xl object-cover ring-2 ring-gray-100 dark:ring-gray-700" 
-                src={user.avatar} 
-                alt="" 
-            />
-            <div className="ml-3 overflow-hidden">
-                <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{user.username}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{user.role}</p>
-            </div>
-            </div>
-            <button 
-                onClick={onLogout} 
-                className="w-full flex items-center justify-center px-4 py-2 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 rounded-xl transition-colors"
-            >
-            <Icon name="logOut" className="w-3.5 h-3.5 mr-2" />
-            Sair
-            </button>
-        </div>
+        {/* ... código do footer ... */}
       </div>
     </div>
   );
 
   return (
     <>
-      {/* Desktop: Sidebar visível sempre, mas sem 'fixed' para respeitar o layout flex */}
+      {/* ... (Return do Sidebar igual) ... */}
       <aside className="hidden md:flex w-72 flex-col rounded-[2rem] bg-[#f3f4f6] dark:bg-[#0f172a]">
         <SidebarContent />
       </aside>
-
-      {/* Mobile: Mantém o Drawer (Modal) */}
-      <Transition show={isMobileSidebarOpen} as={Fragment}>
-        <Dialog as="div" className="relative z-50 md:hidden" onClose={setIsMobileSidebarOpen}>
-          <Transition.Child as={Fragment} enter="transition-opacity ease-linear duration-300" enterFrom="opacity-0" enterTo="opacity-100" leave="transition-opacity ease-linear duration-300" leaveFrom="opacity-100" leaveTo="opacity-0">
-            <Dialog.Overlay className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm" />
-          </Transition.Child>
-          <Transition.Child as={Fragment} enter="transition ease-in-out duration-300 transform" enterFrom="-translate-x-full" enterTo="translate-x-0" leave="transition ease-in-out duration-300 transform" leaveFrom="translate-x-0" leaveTo="-translate-x-full">
-            <div className="fixed inset-y-0 left-0 flex w-full max-w-xs flex-col bg-[#f3f4f6] dark:bg-[#0f172a] shadow-2xl">
-                <div className="absolute top-0 right-0 -mr-12 pt-2">
-                  <button type="button" className="ml-1 flex items-center justify-center h-10 w-10 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white" onClick={() => setIsMobileSidebarOpen(false)}>
-                    <Icon name="x" className="h-6 w-6 text-white" />
-                  </button>
-                </div>
-              <SidebarContent />
-            </div>
-          </Transition.Child>
-        </Dialog>
-      </Transition>
+      {/* ... Mobile ... */}
     </>
   );
 };
