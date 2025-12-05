@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { signOut } from 'firebase/auth';
-import { auth } from '../../firebaseConfig';
 import useProcesses from '../../hooks/useProcesses';
 
 // Layouts e Modais
@@ -13,48 +12,21 @@ import SupportModal from '../../components/SupportModal';
 import DashboardGestorComponent from './GestorDashboard';
 import DashboardAnalistaComponent from './AnalistaDashboard';
 import DashboardSuporteComponent from './SuporteDashboard';
+import TabelaProcessosRecentes from '../../components/TabelaProcessosRecentes';
+import FerramentasComponent from '../../components/FerramentasComponent';
 import SettingsComponent from '../settings/Settings';
 import PlaceholderComponent from '../../components/PlaceholderComponent';
 
-// Função para definir a aba padrão
-const getDefaultTabForRole = (role) => {
-  switch(role) {
-    case 'Gestor': return 'Início';
-    case 'Analista': return 'Início';
-    case 'Suporte': return 'Tickets';
-    default: return 'Início';
-  }
-};
-
-// Este é o "cérebro" do dashboard
 const DashboardPage = () => {
   const { user } = useAuth();
+  const { processes } = useProcesses(user); // Busca os dados aqui
   
-  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
-  const [activeTab, setActiveTab] = useState(getDefaultTabForRole(user.role));
-  
-  const { processes } = useProcesses(user); // 'isLoading' está disponível se você precisar
-  
+  // Estados dos Modais
   const [isProcessModalOpen, setIsProcessModalOpen] = useState(false);
   const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
   const [currentProcess, setCurrentProcess] = useState(null);
 
-  useEffect(() => {
-    if (darkMode) document.documentElement.classList.add('dark');
-    else document.documentElement.classList.remove('dark');
-    localStorage.setItem('darkMode', String(darkMode));
-  }, [darkMode]);
-
-  const toggleDarkMode = () => setDarkMode(!darkMode);
-
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-    } catch (error) {
-      console.error("Erro ao fazer logout:", error);
-    }
-  };
-
+  // Handlers
   const handleEditProcess = (process) => {
     setCurrentProcess(process);
     setIsProcessModalOpen(true);
@@ -63,52 +35,67 @@ const DashboardPage = () => {
   const handleContactSupport = () => {
     setIsSupportModalOpen(true);
   };
-  
-  // Renderiza o conteúdo da aba selecionada
-  const renderDashboardContent = () => {
-    const props = {
-      user,
-      darkMode,
-      toggleDarkMode,
-      activeTab,
-      processes,
-      onContactSupport: handleContactSupport,
-      onEditProcess: handleEditProcess,
-      // Passa o searchQuery para os dashboards
-      // (O DashboardLayout vai clonar e injetar 'searchQuery' aqui)
-    };
-    
-    // Lógica para a aba "Configurações", que é comum a todos
-    if (activeTab === 'Configurações') {
-      return <SettingsComponent {...props} />;
-    }
-    
+
+  // Props que todas as telas precisam
+  const commonProps = {
+    user,
+    processes, // Agora os dados são passados corretamente
+    onContactSupport: handleContactSupport,
+    onEditProcess: handleEditProcess,
+  };
+
+  // Define a Home baseada no cargo
+  const RoleBasedHome = () => {
     switch (user.role) {
-      case 'Gestor': 
-        return <DashboardGestorComponent {...props} />;
-      case 'Analista': 
-        return <DashboardAnalistaComponent {...props} />;
-      case 'Suporte': 
-        return <DashboardSuporteComponent {...props} />;
-      default:
-        return <PlaceholderComponent title="Perfil não encontrado" />;
+      case 'Gestor': return <DashboardGestorComponent {...commonProps} activeTab="Início" />;
+      case 'Analista': return <DashboardAnalistaComponent {...commonProps} activeTab="Início" />;
+      case 'Suporte': return <DashboardSuporteComponent {...commonProps} activeTab="Tickets" />;
+      default: return <PlaceholderComponent title="Acesso Negado" />;
     }
   };
 
   return (
     <>
-      <DashboardLayout
-        user={user}
-        onLogout={handleLogout}
-        darkMode={darkMode}
-        toggleDarkMode={toggleDarkMode}
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-      >
-        {renderDashboardContent()}
-      </DashboardLayout>
-      
-      {/* Modais Globais */}
+      <Routes>
+        <Route element={<DashboardLayout />}>
+          {/* Rota Inicial (Visão Geral) */}
+          <Route index element={<RoleBasedHome />} />
+          
+          {/* Rotas Específicas */}
+          <Route path="processos" element={
+             <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Gerenciamento de Processos</h2>
+                  {user.role !== 'Suporte' && (
+                    <button 
+                      onClick={() => handleEditProcess(null)}
+                      className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition shadow-lg"
+                    >
+                      + Novo Processo
+                    </button>
+                  )}
+                </div>
+                <TabelaProcessosRecentes 
+                  processes={processes} 
+                  onEditProcess={handleEditProcess}
+                  userRole={user.role} 
+                />
+             </div>
+          } />
+          
+          <Route path="ferramentas" element={<FerramentasComponent onContactSupport={handleContactSupport} />} />
+          <Route path="configuracoes" element={<SettingsComponent user={user} />} />
+          <Route path="relatorios" element={<PlaceholderComponent title="Relatórios" />} />
+          
+          <Route path="usuarios" element={
+            user.role === 'Suporte' 
+              ? <DashboardSuporteComponent {...commonProps} activeTab="Usuários" /> 
+              : <Navigate to="/dashboard" />
+          } />
+        </Route>
+      </Routes>
+
+      {/* Modais Globais (Ficam fora das rotas para não desmontar) */}
       <ProcessModal
         isOpen={isProcessModalOpen}
         setIsOpen={setIsProcessModalOpen}
