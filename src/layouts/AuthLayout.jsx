@@ -1,10 +1,23 @@
 import React from 'react';
-import Icon from '../components/Icon'; // Importe o Icon!
+import Icon from '../components/Icon';
 
-// Cole o componente AuthLayout que estava no App.jsx
 const AuthLayout = ({ title, description, icon, iconColor, children }) => (
-  <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 p-4 transition-colors duration-300">
-    <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-2xl w-full max-w-md border border-gray-200 dark:border-gray-700">
+  // Adicionado 'relative' e 'overflow-hidden' ao container principal
+  <div className="relative flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 p-4 transition-colors duration-300 overflow-hidden">
+    
+    {/* --- INÍCIO DA MARCA D'ÁGUA --- */}
+    <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
+      <img 
+        src="/SITECicone.png" 
+        alt="Marca d'água SITEC" 
+        // Ajuste o tamanho (w-96) e a opacidade (opacity-5) conforme seu gosto
+        className="w-[600px] h-[600px] object-contain opacity-5 dark:opacity-[0.03] grayscale" 
+      />
+    </div>
+    {/* --- FIM DA MARCA D'ÁGUA --- */}
+
+    {/* O Card de Login recebe 'relative' e 'z-10' para garantir que fique SOBRE a marca d'água */}
+    <div className="relative z-10 bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-2xl w-full max-w-md border border-gray-200 dark:border-gray-700">
       <div className="flex flex-col items-center mb-6">
         <div className={`p-3 rounded-full ${iconColor} bg-opacity-10 mb-4`}>
           <Icon name={icon} className={`w-10 h-10 ${iconColor}`} />
