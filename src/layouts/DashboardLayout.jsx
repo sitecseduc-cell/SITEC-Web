@@ -1,32 +1,40 @@
 import React, { useState } from 'react';
-import Sidebar from './Sidebar'; // Depende do Sidebar
-import Header from './Header'; // Depende do Header
+import { Outlet, useLocation } from 'react-router-dom'; // Importante: Outlet
+import { useAuth } from '../context/AuthContext';
+import { signOut } from 'firebase/auth';
+import { auth } from '../../firebaseConfig';
+import Sidebar from './Sidebar';
+import Header from './Header';
 
-// Cole o DashboardLayout que estava no App.jsx
-// Note que removemos 'user', 'onLogout', etc. da lista de props
-// porque os componentes filhos (Sidebar, Header) vão pegar do context
-const DashboardLayout = ({ user, onLogout, darkMode, toggleDarkMode, children, activeTab, setActiveTab }) => {
-  const [searchQuery, setSearchQuery] = useState('');
+const DashboardLayout = () => {
+  const { user } = useAuth();
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
+  const [searchQuery, setSearchQuery] = useState(''); // O Search global ainda pode viver aqui
 
-  // O user agora é pego pelo useAuth() nos componentes filhos,
-  // mas vamos mantê-lo aqui por enquanto para passar pro Sidebar e Header
-  // Na próxima refatoração, removeríamos isso.
-  if (!user) {
-    return null;
-  }
+  // Dark Mode Toggle
+  const toggleDarkMode = () => {
+    const newVal = !darkMode;
+    setDarkMode(newVal);
+    localStorage.setItem('darkMode', String(newVal));
+    if (newVal) document.documentElement.classList.add('dark');
+    else document.documentElement.classList.remove('dark');
+  };
+
+  const handleLogout = () => signOut(auth);
+
+  if (!user) return null;
 
   return (
-    <div className={`flex h-screen bg-gray-100 dark:bg-gray-900 font-sans`}>
+    <div className={`flex h-screen bg-gray-50 dark:bg-gray-900 font-sans transition-colors duration-300`}>
       <Sidebar
         user={user}
-        onLogout={onLogout}
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onLogout={handleLogout}
         isMobileSidebarOpen={isMobileSidebarOpen}
         setIsMobileSidebarOpen={setIsMobileSidebarOpen}
       />
-      <div className="flex-1 flex flex-col overflow-hidden">
+
+      <div className="flex-1 flex flex-col overflow-hidden relative">
         <Header
           user={user}
           darkMode={darkMode}
@@ -35,14 +43,13 @@ const DashboardLayout = ({ user, onLogout, darkMode, toggleDarkMode, children, a
           setSearchQuery={setSearchQuery}
           setIsMobileSidebarOpen={setIsMobileSidebarOpen}
         />
-        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 dark:bg-gray-900 p-4 sm:p-8 transition-colors duration-300">
-          <div className="max-w-7xl mx-auto" id="printable-area">
-            {/* O cloneElement não é mais necessário com o roteador,
-                mas vamos manter a lógica do children por enquanto.
-                O 'children' será o <DynamicDashboard /> do App.jsx */}
-            {React.Children.map(children, child =>
-              React.cloneElement(child, { searchQuery }) // Passa apenas o searchQuery
-            )}
+
+        {/* Área Principal de Conteúdo */}
+        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 dark:bg-gray-900 p-4 sm:p-6 lg:p-8">
+          <div className="max-w-7xl mx-auto animate-fade-in">
+            {/* O Outlet renderiza a rota filha (Ex: /dashboard/processos) */}
+            {/* Podemos passar props via Contexto do Outlet se necessário, mas simplificaremos aqui */}
+            <Outlet context={{ searchQuery, darkMode }} />
           </div>
         </main>
       </div>
